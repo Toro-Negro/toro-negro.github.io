@@ -752,7 +752,7 @@ async function arrancar() {
   if (perr) { pantallaLogin("No se pudo leer tu perfil: " + (perr.message || perr.code || "error") + (perr.code ? " (" + perr.code + ")" : "")); return; }
   if (!perfil || !perfil.activo) { await sb.auth.signOut(); pantallaLogin("Tu usuario no está habilitado. Pedile acceso a Facundo."); return; }
   S.perfil = perfil; S.canWrite = perfil.rol !== "lectura";
-  $("#btnSalir").hidden = false; $("#quien").textContent = perfil.nombre;
+  $("#btnSalir").hidden = false; $("#quien").textContent = perfil.nombre + (perfil.rol === "lectura" ? " · solo ver, no puede cargar" : "");
   if (arrancado) { render(); return; }
   arrancado = true;
   db = makeDb();
