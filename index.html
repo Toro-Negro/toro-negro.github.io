@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Caja Toro Negro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: barra superior con logo y pestañas desplazables; cada sección es una columna de tarjetas con formulario arriba y lista abajo. */
+:root{
+  --bg:#f5f4f2; --surface:#ffffff; --surface-2:#efedea; --line:#dedad5;
+  --fg:#1d1b19; --muted:#6e6862; --accent:#d9561e; --accent-ink:#ffffff; --accent-soft:#fbe6dc;
+  --good:#1f7a4a; --good-soft:#dff1e6; --warn:#a86a00; --warn-soft:#fbefd4; --bad:#b3261e; --bad-soft:#f9dedc;
+  --display:"Cinzel", Georgia, "Times New Roman", serif;
+  --body:"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --radius:10px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#141312; --surface:#1d1b1a; --surface-2:#262422; --line:#363330;
+  --fg:#f1eeea; --muted:#a59e97; --accent:#f07a3f; --accent-ink:#1a0d06; --accent-soft:#3a2216;
+  --good:#5cc48b; --good-soft:#18301f; --warn:#e2b04a; --warn-soft:#352a12; --bad:#f08a80; --bad-soft:#3a1a18; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#141312; --surface:#1d1b1a; --surface-2:#262422; --line:#363330;
+  --fg:#f1eeea; --muted:#a59e97; --accent:#f07a3f; --accent-ink:#1a0d06; --accent-soft:#3a2216;
+  --good:#5cc48b; --good-soft:#18301f; --warn:#e2b04a; --warn-soft:#352a12; --bad:#f08a80; --bad-soft:#3a1a18; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:14px;line-height:1.45;font-variant-numeric:tabular-nums}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
+.top-in{max-width:1080px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:10px 0}
+.brand{display:flex;align-items:center;gap:10px}
+.logo{height:30px;width:auto;border-radius:6px;background:#fff;padding:2px 4px}
+.brand h1{font-family:var(--display);font-size:17px;letter-spacing:.06em;margin:0;text-wrap:balance}
+.brand .sub{color:var(--muted);font-size:12px;margin-left:auto;text-align:right}
+nav.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;margin-top:8px}
+nav.tabs::-webkit-scrollbar{display:none}
+nav.tabs button{flex:none;border:0;background:none;color:var(--muted);font:inherit;font-weight:600;padding:10px 12px;border-bottom:2px solid transparent;cursor:pointer}
+nav.tabs button[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--accent)}
+main{max-width:1080px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:18px 48px;display:grid;gap:16px}
+h2{font-size:18px;margin:0;text-wrap:balance}
+h3{font-size:13px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:0 0 10px;font-weight:600}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px;min-width:0}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+.tile .label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+.tile .num{font-size:24px;font-weight:700;margin-top:4px}
+.tile .note{color:var(--muted);font-size:12px;margin-top:2px}
+.row2{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));align-items:start}
+form.f{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+form.f .wide{grid-column:1/-1}
+label.fl{display:grid;gap:4px;font-size:12px;color:var(--muted);font-weight:500}
+input,select,textarea{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%;min-width:0}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button.b{font:inherit;font-weight:600;border-radius:8px;padding:8px 14px;border:1px solid var(--line);background:var(--surface-2);color:var(--fg);cursor:pointer}
+button.b.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button.b.small{padding:4px 10px;font-size:12px}
+button.b.danger{color:var(--bad)}
+button.b:disabled{opacity:.5;cursor:default}
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);text-align:left;font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+td.n,th.n{text-align:right;white-space:nowrap}
+tr.click{cursor:pointer}
+tr.click:hover td{background:var(--surface-2)}
+.pill{display:inline-block;font-size:11px;font-weight:600;border-radius:999px;padding:2px 8px;white-space:nowrap}
+.pill.good{background:var(--good-soft);color:var(--good)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.bad{background:var(--bad-soft);color:var(--bad)}
+.pill.mute{background:var(--surface-2);color:var(--muted)}
+.pill.acc{background:var(--accent-soft);color:var(--accent)}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+.pos{color:var(--good)} .neg{color:var(--bad)}
+.empty{color:var(--muted);padding:12px 0}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.toolbar input,.toolbar select{width:auto;min-width:0;flex:1 1 160px;max-width:260px}
+.week{display:grid;gap:8px}
+.week .d{display:grid;grid-template-columns:minmax(90px,1.2fr) 1fr 1fr minmax(80px,.8fr);gap:8px;align-items:center}
+.week .d.hd{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+.status{font-size:12px;color:var(--muted)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:8px;font-weight:600;z-index:20}
+.banner{background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:10px 12px;font-size:13px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px}
+.kv dt{color:var(--muted)} .kv dd{margin:0;text-align:right;font-weight:600}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+.login{max-width:380px;margin:40px auto 0;display:grid;gap:12px}
+.login .logo-big{height:64px;width:auto;justify-self:center;border-radius:8px;background:#fff;padding:4px 8px}
+.who{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
+<style>html{padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<header class="top"><div class="top-in">
+  <div class="brand">
+    <img class="logo" src="data:image/jpeg;base64,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" alt="Toro Negro">
+    <h1>Caja y personal</h1>
+    <div class="sub who"><span id="syncNote">Conectando…</span><span id="quien" class="muted"></span><button class="b small" id="btnSalir" type="button" hidden>Salir</button></div>
+  </div>
+  <nav class="tabs" role="tablist" id="tabs"></nav>
+</div></header>
+<main id="main"><div class="card empty">Cargando los datos de la base…</div></main>
+<div class="toast" id="toast" hidden></div>
+<script>
+(() => {
+"use strict";
+/* ---------- utilidades ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const nf0 = new Intl.NumberFormat("es-UY", {maximumFractionDigits: 0});
+const nf2 = new Intl.NumberFormat("es-UY", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const pesos = n => (n == null || isNaN(n)) ? "—" : (n < 0 ? "-$ " : "$ ") + nf0.format(Math.abs(Math.round(n)));
+const usd = n => (n == null || isNaN(n)) ? "—" : "US$ " + nf2.format(n);
+const money = (n, m) => m === "US$" ? usd(n) : pesos(n);
+const pad = n => String(n).padStart(2, "0");
+const iso = d => d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+const today = () => iso(new Date());
+const parseISO = s => { const [y, m, d] = String(s).split("-").map(Number); return new Date(y, m - 1, d); };
+const fmtD = s => { if (!s) return "—"; const [y, m, d] = String(s).split("-"); return d + "/" + m + "/" + y; };
+const addDays = (s, n) => { const d = parseISO(s); d.setDate(d.getDate() + n); return iso(d); };
+const monday = s => { const d = parseISO(s); const w = (d.getDay() + 6) % 7; d.setDate(d.getDate() - w); return iso(d); };
+const nextMonday = s => { const d = parseISO(s); const w = (d.getDay() + 6) % 7; d.setDate(d.getDate() + (7 - w)); return iso(d); };
+const DIAS = ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
+const dia = s => DIAS[parseISO(s).getDay()];
+const num = v => { if (v === "" || v == null) return null; const n = Number(String(v).replace(/\./g, "").replace(",", ".")); return isNaN(n) ? null : n; };
+const numIn = v => { if (v === "" || v == null) return null; const s = String(v).trim(); const n = Number(s.includes(",") ? s.replace(/\./g, "").replace(",", ".") : s); return isNaN(n) ? null : n; };
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+let toastT;
+const toast = msg => { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2200); };
+
+/* ---------- estado ---------- */
+const COLS = ["personal","movimientos","adelantos","cajaFuerte","arqueos","propinas","semanasPropina","pagos","pendientesDrive"];
+const S = {cfg: {cotizacion: 41, diasAcreditacion: 15}, ready: {}, canWrite: true};
+COLS.forEach(c => S[c] = []);
+let db = null, dl = true;
+let tab = "resumen";
+const ui = {editing: {}, personalQ: "", personalEstado: "activos", pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
+
+const TABS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retiros de caja"],["adelantos","Adelantos"],["propinas","Propinas"],["personal","Personal"],["pagos","Pagos y vencimientos"],["ajustes","Ajustes"],["usuarios","Usuarios"]];
+
+/* ---------- cálculos ---------- */
+const enPesos = (monto, moneda, cot) => moneda === "US$" ? (monto || 0) * (cot || S.cfg.cotizacion) : (monto || 0);
+function cajaTotales(desde) {
+  let ing = 0, egr = 0;
+  S.movimientos.forEach(m => { if (desde && m.fecha < desde) return; const v = enPesos(m.monto, m.moneda, m.cotizacion); if (m.tipo === "Ingreso") ing += v; else egr += v; });
+  let adel = 0;
+  S.adelantos.forEach(a => { if (a.estado !== "Entregado") return; if (desde && a.fecha < desde) return; adel += a.monto || 0; });
+  return {ing, egr: egr + adel, adel, saldo: ing - egr - adel};
+}
+function fuerteTotales() {
+  let p = 0, u = 0;
+  S.cajaFuerte.forEach(x => { const s = x.tipo === "Salida" ? -1 : 1; p += s * (x.pesos || 0); u += s * (x.dolares || 0); });
+  return {pesos: p, usd: u, equiv: p + u * S.cfg.cotizacion};
+}
+const estadoPersona = p => p.baja && p.baja < today() ? "Baja" : (p.alta && p.alta > today() ? "Por entrar" : "Activo");
+const adelPendDesc = nombre => S.adelantos.filter(a => a.empleado === nombre && a.estado === "Entregado" && !a.descontado).reduce((s, a) => s + (a.monto || 0), 0);
+const propina = (f, t) => S.propinas.find(x => x.fecha === f && x.turno === t);
+function semanaPropina(lunes) {
+  const dias = [...Array(7)].map((_, i) => addDays(lunes, i));
+  let total = 0; const rows = dias.map(f => { const d = propina(f, "Día")?.monto || 0, n = propina(f, "Noche")?.monto || 0; total += d + n; return {f, d, n, t: d + n}; });
+  const acred = addDays(dias[6], S.cfg.diasAcreditacion || 15);
+  return {dias: rows, total, acred, entrega: nextMonday(acred)};
+}
+const sortBy = (arr, k, dir = 1) => [...arr].sort((a, b) => (a[k] ?? "") < (b[k] ?? "") ? -dir : (a[k] ?? "") > (b[k] ?? "") ? dir : 0);
+
+/* ---------- escritura ---------- */
+async function save(col, id, data) {
+  if (!db) { toast("Sin conexión con la base"); return false; }
+  try { await db.collection(col).doc(id || uid()).set({...data, actualizado: new Date().toISOString()}); return true; }
+  catch (e) { toast(e?.code === "invalid_argument" ? "No tenés permiso para guardar" : "No se pudo guardar, probá de nuevo"); return false; }
+}
+async function patch(col, id, data) {
+  try { await db.collection(col).doc(id).update({...data, actualizado: new Date().toISOString()}); return true; }
+  catch (e) { toast("No se pudo guardar, probá de nuevo"); return false; }
+}
+async function remove(col, id) {
+  try { await db.collection(col).doc(id).delete(); toast("Borrado"); } catch (e) { toast("No se pudo borrar"); }
+}
+const formData = form => Object.fromEntries(new FormData(form).entries());
+const slug = t => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80) || uid();
+const norm = t => (t || "").trim().toLowerCase();
+const conocidos = () => new Set([...S.personal.map(p => p.nombre), ...S.pagos.map(p => p.proveedor), ...S.movimientos.map(m => m.persona)].filter(Boolean).map(norm));
+async function marcarNuevo(tipo, nombre, desde) {
+  const id = slug(tipo + "-" + nombre);
+  if (S.pendientesDrive.some(x => x.id === id)) return;
+  await save("pendientesDrive", id, {tipo, nombre, desde, fecha: today(), resuelto: false, resueltoFecha: null});
+}
+const catsAll = () => [...new Set([...CATS, ...S.movimientos.map(m => m.categoria).filter(Boolean)])];
+
+/* ---------- render ---------- */
+function renderTabs() {
+  if (!S.perfil) { $("#tabs").innerHTML = ""; return; }
+  $("#tabs").innerHTML = TABS.filter(([k]) => k !== "usuarios" || S.perfil.rol === "admin").map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${k === tab}">${l}</button>`).join("");
+}
+function render() {
+  renderTabs();
+  const views = {resumen: vResumen, caja: vCaja, fuerte: vFuerte, adelantos: vAdelantos, propinas: vPropinas, personal: vPersonal, pagos: vPagos, ajustes: vAjustes, usuarios: vUsuarios};
+  if (!S.perfil) return;
+  const active = document.activeElement; const keepId = active && active.id;
+  $("#main").innerHTML = views[tab]();
+  if (keepId) { const el = document.getElementById(keepId); if (el && el.tagName === "INPUT" && el.type !== "checkbox") { el.focus(); try { el.setSelectionRange(el.value.length, el.value.length); } catch (_) {} } }
+}
+const empleadosOpts = (sel, soloActivos = true) => sortBy(S.personal, "nombre").filter(p => !soloActivos || estadoPersona(p) !== "Baja" || p.nombre === sel).map(p => `<option ${p.nombre === sel ? "selected" : ""}>${esc(p.nombre)}</option>`).join("");
+const opts = (list, sel) => list.map(o => `<option ${o === sel ? "selected" : ""}>${esc(o)}</option>`).join("");
+const CATS = ["Aporte de socio","Venta","Jornal","Sueldo","Proveedor","Compra","Otro"];
+const roOnly = () => S.canWrite ? "" : "disabled";
+
+function vResumen() {
+  const c = cajaTotales(), f = fuerteTotales(), sem = cajaTotales(monday(today()));
+  const adel = S.adelantos.filter(a => a.estado === "Entregado" && !a.descontado).reduce((s, a) => s + (a.monto || 0), 0);
+  const pendEnt = S.adelantos.filter(a => a.estado !== "Entregado");
+  const pend = S.pagos.filter(p => p.estado !== "Pagado");
+  const deudaP = pend.filter(p => p.moneda !== "US$").reduce((s, p) => s + (p.monto || 0), 0);
+  const deudaU = pend.filter(p => p.moneda === "US$").reduce((s, p) => s + (p.monto || 0), 0);
+  const lim = addDays(today(), 7);
+  const venc = sortBy(pend.filter(p => p.vencimiento && p.vencimiento <= lim), "vencimiento");
+  const ps = semanaPropina(monday(today()));
+  return `
+  <div class="grid">
+    <div class="card tile"><div class="label">Fondo de dueños</div><div class="num">${pesos(c.saldo)}</div><div class="note">Quedan de ${pesos(c.ing)} recibidos · gastado ${pesos(c.egr)}</div></div>
+    <div class="card tile"><div class="label">Retiros de caja</div><div class="num">${pesos(f.pesos)}</div><div class="note">y ${usd(f.usd)} · total ${pesos(f.equiv)} a $${nf0.format(S.cfg.cotizacion)}</div></div>
+    <div class="card tile"><div class="label">Adelantos a descontar</div><div class="num">${pesos(adel)}</div><div class="note">${pendEnt.length ? pendEnt.length + " sin entregar (" + pesos(pendEnt.reduce((s,a)=>s+(a.monto||0),0)) + ")" : "Todos entregados"}</div></div>
+    <div class="card tile"><div class="label">Deuda pendiente</div><div class="num">${pesos(deudaP)}</div><div class="note">y ${usd(deudaU)} · ${pend.length} pagos</div></div>
+  </div>
+  <div class="row2">
+    <div class="card"><h3>Vencimientos hasta el ${fmtD(lim)}</h3>${venc.length ? `<div class="tbl-wrap"><table><thead><tr><th>Vence</th><th>Concepto</th><th class="n">Monto</th></tr></thead><tbody>${venc.map(p => `<tr><td>${vencPill(p.vencimiento)}</td><td>${esc(p.proveedor)}<div class="muted small">${esc(p.concepto || "")}</div></td><td class="n">${p.monto == null ? "a definir" : money(p.monto, p.moneda)}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">Nada vence en los próximos 7 días.</div>`}</div>
+    <div class="card"><h3>Esta semana</h3><dl class="kv">
+      <dt>Gastos de caja desde el lunes ${fmtD(monday(today()))}</dt><dd>${pesos(sem.egr)}</dd>
+      <dt>Propina con tarjeta</dt><dd>${pesos(ps.total)}</dd>
+      <dt>Se entrega al jefe de cocina</dt><dd>${fmtD(ps.entrega)}</dd>
+      <dt>Personal activo</dt><dd>${S.personal.filter(p => estadoPersona(p) === "Activo").length}</dd>
+    </dl></div>
+  </div>
+  ${(() => { const nv = sortBy(S.pendientesDrive.filter(x => !x.resuelto), "fecha", -1); const ok = sortBy(S.pendientesDrive.filter(x => x.resuelto && (x.resueltoFecha || x.fecha) >= addDays(today(), -14)), "fecha", -1); if (!nv.length && !ok.length) return "";
+    const tbl = (list, btn) => `<div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Tipo</th><th>Desde</th><th></th></tr></thead><tbody>${list.map(x => `<tr><td>${esc(x.nombre)}</td><td>${esc(x.tipo)}</td><td>${esc(x.desde)} · ${fmtD(x.fecha)}</td><td class="n">${btn(x)}</td></tr>`).join("")}</tbody></table></div>`;
+    return `<div class="card"><h3>Nuevos para pasar a Drive</h3>${nv.length ? `<p class="muted small" style="margin:0 0 8px">Cargaste esto en la app y no estaba en las planillas. Avisale a Claude en el chat y te pregunta dónde va cada uno.</p>${tbl(nv, x => `<button class="b small" data-act="driveOk" data-id="${x.id}" ${roOnly()}>Ya está en Drive</button>`)}` : `<div class="empty">No hay nada pendiente de pasar a Drive.</div>`}${ok.length ? `<details style="margin-top:10px"><summary class="small muted" style="cursor:pointer">Ya marcados como cargados (${ok.length}) · deshacer</summary>${tbl(ok, x => `<button class="b small" data-act="driveUndo" data-id="${x.id}" ${roOnly()}>Volver a pendientes</button>`)}</details>` : ""}</div>`; })()}`;
+}
+function vencPill(v) {
+  if (!v) return `<span class="pill mute">sin fecha</span>`;
+  const t = today();
+  if (v < t) return `<span class="pill bad">${fmtD(v)} vencido</span>`;
+  if (v <= addDays(t, 3)) return `<span class="pill warn">${fmtD(v)}</span>`;
+  return `<span class="pill mute">${fmtD(v)}</span>`;
+}
+
+function vCaja() {
+  const e = S.movimientos.find(m => m.id === ui.editing.mov) || {};
+  const c = cajaTotales();
+  const rows = sortBy([
+    ...S.movimientos.map(m => ({...m, _k: "mov"})),
+    ...S.adelantos.filter(a => a.estado === "Entregado").map(a => ({id: a.id, fecha: a.fecha, turno: a.turno, tipo: "Egreso", categoria: "Adelanto de sueldo", concepto: "Adelanto", persona: a.empleado, monto: a.monto, moneda: "$", notas: a.notas, _k: "adel"}))
+  ], "fecha", -1).filter(m => !ui.movSemana || m.fecha >= ui.movSemana);
+  const arq = sortBy(S.arqueos, "fecha", -1);
+  const ea = S.arqueos.find(a => a.id === ui.editing.arq) || {};
+  return `
+  <div class="grid">
+    <div class="card tile"><div class="label">Quedan del fondo</div><div class="num">${pesos(c.saldo)}</div><div class="note">Plata que te dieron los dueños, guardada en la caja fuerte</div></div>
+    <div class="card tile"><div class="label">Recibido</div><div class="num pos">${pesos(c.ing)}</div></div>
+    <div class="card tile"><div class="label">Egresos</div><div class="num neg">${pesos(c.egr)}</div><div class="note">Incluye ${pesos(c.adel)} de adelantos</div></div>
+  </div>
+  <div class="card"><h3>${e.id ? "Editar movimiento" : "Nuevo movimiento"}</h3>
+    <form class="f" id="fMov">
+      <label class="fl">Fecha<input id="m_fecha" name="fecha" type="date" required value="${esc(e.fecha || today())}"></label>
+      <label class="fl">Turno<select id="m_turno" name="turno">${opts(["Día","Noche"], e.turno || (new Date().getHours() < 17 ? "Día" : "Noche"))}</select></label>
+      <label class="fl">Tipo<select id="m_tipo" name="tipo">${opts(["Egreso","Ingreso"], e.tipo || "Egreso")}</select></label>
+      <label class="fl">Categoría<select id="m_cat" name="categoria">${opts(catsAll(), e.categoria || "Jornal")}<option value="__nuevo">+ Otra categoría…</option></select></label>
+      <label class="fl" id="m_catNuevaL" hidden>Nombre de la categoría nueva<input id="m_catNueva" name="catNueva"></label>
+      <label class="fl">Persona o proveedor<input id="m_persona" name="persona" list="dlPersonas" value="${esc(e.persona || "")}"></label>
+      <label class="fl">Concepto<input id="m_concepto" name="concepto" value="${esc(e.concepto || "")}"></label>
+      <label class="fl">Monto<input id="m_monto" name="monto" inputmode="decimal" required value="${e.monto ?? ""}"></label>
+      <label class="fl">Moneda<select id="m_moneda" name="moneda">${opts(["$","US$"], e.moneda || "$")}</select></label>
+      <label class="fl">Forma de pago<select id="m_fp" name="formaPago">${opts(["Efectivo","Transferencia","Cheque","Tarjeta"], e.formaPago || "Efectivo")}</select></label>
+      <label class="fl wide">Notas<input id="m_notas" name="notas" value="${esc(e.notas || "")}"></label>
+      <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>${e.id ? "Guardar cambios" : "Agregar movimiento"}</button>${e.id ? `<button class="b" type="button" data-act="cancelMov">Cancelar</button><button class="b danger" type="button" data-act="delMov" data-id="${e.id}">Borrar</button>` : ""}<span class="muted small">Los adelantos se cargan en la pestaña Adelantos. Si escribís una persona o proveedor que no está en la lista, queda anotado para pasar a Drive.</span></div>
+    </form>
+    <datalist id="dlPersonas">${[...new Set([...S.personal.map(p => p.nombre), ...S.pagos.map(p => p.proveedor)].filter(Boolean))].sort().map(n => `<option value="${esc(n)}">`).join("")}</datalist>
+  </div>
+  <div class="card">
+    <div class="toolbar"><h3 style="margin:0">Movimientos</h3>
+      <select id="movSemana" aria-label="Período"><option value="">Todos</option><option value="${monday(today())}" ${ui.movSemana === monday(today()) ? "selected" : ""}>Esta semana</option><option value="${today()}" ${ui.movSemana === today() ? "selected" : ""}>Hoy</option></select></div>
+    ${rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Detalle</th><th>Categoría</th><th class="n">Monto</th></tr></thead><tbody>
+    ${rows.map(m => `<tr class="click" data-act="${m._k === "mov" ? "editMov" : "goAdel"}" data-id="${m.id}"><td>${fmtD(m.fecha)}${m.turno ? `<div class="muted small">${esc(m.turno)}</div>` : ""}</td><td>${esc(m.persona || "")}<div class="muted small">${esc([m.concepto, m.notas].filter(Boolean).join(" · "))}</div></td><td><span class="pill ${m.tipo === "Ingreso" ? "good" : "mute"}">${esc(m.categoria)}</span></td><td class="n ${m.tipo === "Ingreso" ? "pos" : ""}">${m.tipo === "Ingreso" ? "+" : "−"} ${money(m.monto, m.moneda)}</td></tr>`).join("")}
+    </tbody></table></div>` : `<div class="empty">No hay movimientos en este período. Cargá el primero con el formulario de arriba.</div>`}
+  </div>
+  <div class="card"><h3>${ea.id ? "Editar arqueo" : "Arqueo y cierre de turno"}</h3>
+    <form class="f" id="fArq">
+      <label class="fl">Fecha<input id="a_fecha" name="fecha" type="date" required value="${esc(ea.fecha || today())}"></label>
+      <label class="fl">Turno<select id="a_turno" name="turno">${opts(["Día","Noche"], ea.turno || "Día")}</select></label>
+      <label class="fl">Responsable<input id="a_resp" name="responsable" list="dlPersonas" value="${esc(ea.responsable || "")}"></label>
+      <label class="fl">Saldo según la app<input id="a_sis" name="saldoSistema" inputmode="decimal" value="${ea.saldoSistema ?? Math.round(c.saldo)}"></label>
+      <label class="fl">Efectivo contado<input id="a_cont" name="contado" inputmode="decimal" required value="${ea.contado ?? ""}"></label>
+      <label class="fl">Cierres de lote POS<input id="a_lotes" name="lotes" inputmode="decimal" value="${ea.lotes ?? ""}"></label>
+      <label class="fl wide">Comentario<input id="a_com" name="comentario" value="${esc(ea.comentario || "")}"></label>
+      <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>${ea.id ? "Guardar arqueo" : "Registrar arqueo"}</button>${ea.id ? `<button class="b" type="button" data-act="cancelArq">Cancelar</button><button class="b danger" type="button" data-act="delArq" data-id="${ea.id}">Borrar</button>` : ""}</div>
+    </form>
+    ${arq.length ? `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Fecha</th><th>Responsable</th><th class="n">Según app</th><th class="n">Contado</th><th class="n">Diferencia</th></tr></thead><tbody>${arq.map(a => { const d = (a.contado || 0) - (a.saldoSistema || 0); return `<tr class="click" data-act="editArq" data-id="${a.id}"><td>${fmtD(a.fecha)}<div class="muted small">${esc(a.turno)}</div></td><td>${esc(a.responsable || "—")}<div class="muted small">${esc(a.comentario || "")}</div></td><td class="n">${pesos(a.saldoSistema)}</td><td class="n">${pesos(a.contado)}</td><td class="n"><span class="pill ${d === 0 ? "good" : Math.abs(d) < 500 ? "warn" : "bad"}">${d > 0 ? "+" : ""}${pesos(d)}</span></td></tr>`; }).join("")}</tbody></table></div>` : `<div class="empty">Todavía no hay arqueos. Al cerrar cada turno, contá el efectivo y registralo acá.</div>`}
+  </div>`;
+}
+
+function vFuerte() {
+  const f = fuerteTotales();
+  const e = S.cajaFuerte.find(x => x.id === ui.editing.cf) || {};
+  const rows = sortBy(S.cajaFuerte, "fecha", -1);
+  return `
+  <div class="grid">
+    <div class="card tile"><div class="label">Pesos retirados</div><div class="num">${pesos(f.pesos)}</div><div class="note">Aparte del fondo de dueños</div></div>
+    <div class="card tile"><div class="label">Dólares</div><div class="num">${usd(f.usd)}</div><div class="note">a $${nf0.format(S.cfg.cotizacion)} = ${pesos(f.usd * S.cfg.cotizacion)}</div></div>
+    <div class="card tile"><div class="label">Total en pesos</div><div class="num">${pesos(f.equiv)}</div><div class="note">Cotización fija, se cambia en Ajustes</div></div>
+  </div>
+  <div class="card"><h3>${e.id ? "Editar retiro" : "Nuevo retiro de la caja del restorán"}</h3>
+    <form class="f" id="fCF">
+      <label class="fl">Fecha<input id="cf_fecha" name="fecha" type="date" required value="${esc(e.fecha || today())}"></label>
+      <label class="fl">Tipo<select id="cf_tipo" name="tipo">${opts(["Entrada","Salida"], e.tipo || "Entrada")}</select></label>
+      <label class="fl">Pesos<input id="cf_p" name="pesos" inputmode="decimal" value="${e.pesos ?? ""}"></label>
+      <label class="fl">Dólares<input id="cf_u" name="dolares" inputmode="decimal" value="${e.dolares ?? ""}"></label>
+      <label class="fl wide">Motivo<input id="cf_mot" name="motivo" required value="${esc(e.motivo || "")}" placeholder="Retiro de la caja del restorán"></label>
+      <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>${e.id ? "Guardar cambios" : "Registrar"}</button>${e.id ? `<button class="b" type="button" data-act="cancelCF">Cancelar</button><button class="b danger" type="button" data-act="delCF" data-id="${e.id}">Borrar</button>` : ""}<span class="muted small">Acá van solo los retiros de la caja del restorán. Lo que te dan los dueños y lo que gastás de esa plata va en Fondo de dueños.</span></div>
+    </form>
+    ${rows.length ? `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Fecha</th><th>Motivo</th><th class="n">Pesos</th><th class="n">Dólares</th></tr></thead><tbody>${rows.map(x => `<tr class="click" data-act="editCF" data-id="${x.id}"><td>${fmtD(x.fecha)}</td><td>${esc(x.motivo)} <span class="pill ${x.tipo === "Salida" ? "bad" : "good"}">${esc(x.tipo)}</span></td><td class="n">${x.pesos ? pesos(x.pesos) : "—"}</td><td class="n">${x.dolares ? usd(x.dolares) : "—"}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay retiros todavía.</div>`}
+  </div>`;
+}
+
+function vAdelantos() {
+  const e = S.adelantos.find(a => a.id === ui.editing.adel) || {};
+  const pend = sortBy(S.adelantos.filter(a => a.estado !== "Entregado"), "fecha");
+  const sinDesc = sortBy(S.adelantos.filter(a => a.estado === "Entregado" && !a.descontado), "fecha", -1);
+  const desc = sortBy(S.adelantos.filter(a => a.estado === "Entregado" && a.descontado), "fecha", -1);
+  const porEmp = {}; sinDesc.forEach(a => porEmp[a.empleado] = (porEmp[a.empleado] || 0) + (a.monto || 0));
+  const row = (a, btn) => `<tr><td>${fmtD(a.fecha)}</td><td class="click" data-act="editAdel" data-id="${a.id}">${esc(a.empleado)}<div class="muted small">${esc(a.notas || "")}</div></td><td class="n">${pesos(a.monto)}</td><td class="n">${btn}</td></tr>`;
+  const tbl = (list, btn, emptyTxt) => list.length ? `<div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Empleado</th><th class="n">Monto</th><th></th></tr></thead><tbody>${list.map(a => row(a, btn(a))).join("")}</tbody></table></div>` : `<div class="empty">${emptyTxt}</div>`;
+  return `
+  <div class="grid">
+    <div class="card tile"><div class="label">A descontar del próximo sueldo</div><div class="num">${pesos(sinDesc.reduce((s,a)=>s+(a.monto||0),0))}</div><div class="note">${Object.keys(porEmp).length} personas</div></div>
+    <div class="card tile"><div class="label">Pendientes de entregar</div><div class="num">${pesos(pend.reduce((s,a)=>s+(a.monto||0),0))}</div><div class="note">${pend.map(a => esc(a.empleado.split(" ")[0])).join(", ") || "Ninguno"}</div></div>
+  </div>
+  <div class="card"><h3>${e.id ? "Editar adelanto" : "Nuevo adelanto"}</h3>
+    <form class="f" id="fAdel">
+      <label class="fl">Empleado<select id="ad_emp" name="empleado" required><option value="">Elegí…</option>${empleadosOpts(e.empleado)}<option value="__nuevo">+ Persona nueva…</option></select></label>
+      <label class="fl" id="ad_nuevoL" hidden>Nombre y apellido de la persona nueva<input id="ad_nuevo" name="nuevoNombre"></label>
+      <label class="fl">Fecha<input id="ad_fecha" name="fecha" type="date" required value="${esc(e.fecha || today())}"></label>
+      <label class="fl">Monto ($)<input id="ad_monto" name="monto" inputmode="decimal" required value="${e.monto ?? ""}"></label>
+      <label class="fl">Estado<select id="ad_estado" name="estado">${opts(["Entregado","Pendiente de entrega"], e.estado || "Entregado")}</select></label>
+      <label class="fl wide">Notas<input id="ad_notas" name="notas" value="${esc(e.notas || "")}"></label>
+      <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>${e.id ? "Guardar cambios" : "Agregar adelanto"}</button>${e.id ? `<button class="b" type="button" data-act="cancelAdel">Cancelar</button><button class="b danger" type="button" data-act="delAdel" data-id="${e.id}">Borrar</button>` : ""}<span class="muted small">Un adelanto entregado sale de la caja y se descuenta completo del sueldo siguiente.</span></div>
+    </form>
+  </div>
+  <div class="card"><h3>Pendientes de entregar</h3>${tbl(pend, a => `<button class="b small" data-act="entregar" data-id="${a.id}" ${roOnly()}>Marcar entregado</button>`, "No hay adelantos pendientes de entregar.")}</div>
+  <div class="card"><h3>Entregados, a descontar</h3>${tbl(sinDesc, a => `<button class="b small" data-act="descontar" data-id="${a.id}" ${roOnly()}>Ya descontado</button>`, "No hay adelantos por descontar.")}</div>
+  ${desc.length ? `<div class="card"><h3>Ya descontados</h3>${tbl(desc, a => `<button class="b small" data-act="nodescontar" data-id="${a.id}" ${roOnly()}>Deshacer</button>`, "")}</div>` : ""}`;
+}
+
+function vPropinas() {
+  const w = semanaPropina(ui.semana);
+  const st = S.semanasPropina.find(s => s.id === ui.semana) || {};
+  const semanas = {}; S.propinas.forEach(p => { const l = monday(p.fecha); semanas[l] = (semanas[l] || 0) + (p.monto || 0); });
+  [...new Set([...Object.keys(semanas), ...S.semanasPropina.map(s => s.id)])];
+  const lista = Object.keys(semanas).sort().reverse();
+  return `
+  <div class="card">
+    <div class="toolbar"><h3 style="margin:0">Propina con tarjeta, semana del lunes ${fmtD(ui.semana)}</h3>
+      <div class="btns"><button class="b small" data-act="semPrev" aria-label="Semana anterior">← Anterior</button><input id="semPick" type="date" value="${ui.semana}" aria-label="Elegir semana" style="width:auto"><button class="b small" data-act="semNext" aria-label="Semana siguiente">Siguiente →</button></div></div>
+    <p class="muted small">Anotá el monto con tarjeta de cada turno, del cierre de lote que pasan las cajeras. Se guarda al salir del casillero. Podés cargar días pasados o futuros.</p>
+    <div class="week">
+      <div class="d hd"><span>Día</span><span>Turno día ($)</span><span>Turno noche ($)</span><span style="text-align:right">Total</span></div>
+      ${w.dias.map(r => `<div class="d"><span>${dia(r.f)} <span class="muted small">${fmtD(r.f).slice(0,5)}</span></span>
+        <input id="pd_${r.f}" data-prop="${r.f}|Día" inputmode="decimal" value="${propina(r.f,"Día")?.monto ?? ""}" aria-label="Turno día ${fmtD(r.f)}" ${roOnly()}>
+        <input id="pn_${r.f}" data-prop="${r.f}|Noche" inputmode="decimal" value="${propina(r.f,"Noche")?.monto ?? ""}" aria-label="Turno noche ${fmtD(r.f)}" ${roOnly()}>
+        <strong style="text-align:right">${pesos(r.t)}</strong></div>`).join("")}
+      <div class="d" style="border-top:1px solid var(--line);padding-top:8px"><strong>Total semana</strong><span class="muted">${pesos(w.dias.reduce((s,r)=>s+r.d,0))}</span><span class="muted">${pesos(w.dias.reduce((s,r)=>s+r.n,0))}</span><strong style="text-align:right">${pesos(w.total)}</strong></div>
+    </div>
+  </div>
+  <div class="row2">
+    <div class="card"><h3>Entrega al jefe de cocina</h3><dl class="kv">
+      <dt>OCA acredita lo del domingo (estimado)</dt><dd>${fmtD(w.acred)}</dd>
+      <dt>Se puede entregar el lunes</dt><dd>${fmtD(w.entrega)}</dd>
+    </dl>
+    <div class="btns" style="margin-top:12px">
+      <label class="btns small"><input type="checkbox" id="chkAcred" data-sem="acreditada" ${st.acreditada ? "checked" : ""} ${roOnly()} style="width:auto"> Acreditada por OCA</label>
+      <label class="btns small"><input type="checkbox" id="chkEnt" data-sem="entregada" ${st.entregada ? "checked" : ""} ${roOnly()} style="width:auto"> Entregada al jefe de cocina</label>
+    </div></div>
+    <div class="card"><h3>Todas las semanas</h3>${lista.length ? `<div class="tbl-wrap"><table><thead><tr><th>Semana</th><th class="n">Total</th><th>Estado</th></tr></thead><tbody>${lista.map(l => { const s = S.semanasPropina.find(x => x.id === l) || {}; return `<tr class="click" data-act="verSem" data-id="${l}"><td>${fmtD(l)}</td><td class="n">${pesos(semanas[l])}</td><td>${s.entregada ? '<span class="pill good">Entregada</span>' : s.acreditada ? '<span class="pill acc">Acreditada</span>' : `<span class="pill mute">Entrega ${fmtD(semanaPropina(l).entrega)}</span>`}</td></tr>`; }).join("")}</tbody></table></div>` : `<div class="empty">Todavía no hay propinas cargadas.</div>`}</div>
+  </div>`;
+}
+
+function vPersonal() {
+  const e = S.personal.find(p => p.id === ui.editing.per);
+  const q = ui.personalQ.toLowerCase();
+  const list = sortBy(S.personal, "nombre").filter(p => {
+    const est = estadoPersona(p);
+    if (ui.personalEstado === "activos" && est === "Baja") return false;
+    if (ui.personalEstado === "bajas" && est !== "Baja") return false;
+    return !q || [p.nombre, p.cargo, p.sector].join(" ").toLowerCase().includes(q);
+  });
+  const n = S.personal.filter(p => estadoPersona(p) !== "Baja").length;
+  const form = p => `<div class="card"><h3>${p.id ? "Ficha de " + esc(p.nombre) : "Nueva persona"}</h3>
+    <form class="f" id="fPer">
+      <label class="fl wide">Nombre<input id="pe_nom" name="nombre" required value="${esc(p.nombre || "")}"></label>
+      <label class="fl">Sector<select id="pe_sec" name="sector">${opts(["Cocina","Sala","Barra","Caja","Otros"], p.sector || "Cocina")}</select></label>
+      <label class="fl">Cargo<input id="pe_car" name="cargo" value="${esc(p.cargo || "")}"></label>
+      <label class="fl">Fecha de alta<input id="pe_alta" name="alta" type="date" value="${esc(p.alta || "")}"></label>
+      <label class="fl">Fecha de baja<input id="pe_baja" name="baja" type="date" value="${esc(p.baja || "")}"></label>
+      <label class="fl">Sueldo líquido ($)<input id="pe_liq" name="sueldoLiquido" inputmode="decimal" value="${p.sueldoLiquido ?? ""}" placeholder="${p.laudo ? "Laudo" : ""}"></label>
+      <label class="fl">Sueldo nominal ($)<input id="pe_nomi" name="sueldoNominal" inputmode="decimal" value="${p.sueldoNominal ?? ""}"></label>
+      <label class="fl">Cobra por laudo<select id="pe_laudo" name="laudo">${opts(["No","Sí"], p.laudo ? "Sí" : "No")}</select></label>
+      <label class="fl">Horario<input id="pe_hor" name="horario" value="${esc(p.horario || "")}" placeholder="Ej.: 18 a 01, lunes libre"></label>
+      <label class="fl">Documento<input id="pe_doc" name="documento" value="${esc(p.documento || "")}"></label>
+      <label class="fl">Teléfono<input id="pe_tel" name="telefono" value="${esc(p.telefono || "")}"></label>
+      <label class="fl">Contrato firmado<select id="pe_con" name="contrato">${opts(["","Sí","No"], p.contrato || "")}</select></label>
+      <label class="fl wide">Notas<input id="pe_not" name="notas" value="${esc(p.notas || "")}"></label>
+      ${p.id ? `<div class="wide small muted">Adelantos a descontar: <strong>${pesos(adelPendDesc(p.nombre))}</strong>${p.sueldoLiquido ? ` · líquido menos adelantos: <strong>${pesos(p.sueldoLiquido - adelPendDesc(p.nombre))}</strong>` : ""}</div>` : ""}
+      <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>${p.id ? "Guardar ficha" : "Agregar persona"}</button><button class="b" type="button" data-act="cancelPer">Cerrar</button>${p.id ? `<button class="b danger" type="button" data-act="delPer" data-id="${p.id}">Borrar</button>` : ""}</div>
+    </form></div>`;
+  return `
+  ${e || ui.editing.per === "nuevo" ? form(e || {}) : ""}
+  <div class="card">
+    <div class="toolbar"><h3 style="margin:0">${n} personas activas</h3>
+      <div class="btns" style="flex:1;justify-content:flex-end">
+        <input id="perQ" type="search" placeholder="Buscar nombre o cargo" value="${esc(ui.personalQ)}" aria-label="Buscar">
+        <select id="perEst" aria-label="Estado">${[["activos","Activos"],["bajas","Bajas"],["todos","Todos"]].map(([k,l]) => `<option value="${k}" ${ui.personalEstado === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+        <button class="b primary" data-act="newPer" ${roOnly()}>Agregar</button></div></div>
+    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Nombre</th><th>Sector</th><th>Alta</th><th class="n">Sueldo líquido</th><th class="n">Adelantos</th><th>Estado</th></tr></thead><tbody>${list.map(p => { const est = estadoPersona(p); const ad = adelPendDesc(p.nombre); return `<tr class="click" data-act="editPer" data-id="${p.id}"><td>${esc(p.nombre)}<div class="muted small">${esc(p.cargo || "")}</div></td><td>${esc(p.sector || "")}</td><td>${fmtD(p.alta)}</td><td class="n">${p.sueldoLiquido ? pesos(p.sueldoLiquido) : p.laudo ? "Laudo" : "—"}</td><td class="n">${ad ? pesos(ad) : "—"}</td><td><span class="pill ${est === "Activo" ? "good" : est === "Baja" ? "mute" : "acc"}">${est}${est === "Baja" ? " " + fmtD(p.baja).slice(0,5) : ""}</span></td></tr>`; }).join("")}</tbody></table></div>` : `<div class="empty">No hay personas que coincidan.</div>`}
+  </div>`;
+}
+
+function vPagos() {
+  const e = S.pagos.find(p => p.id === ui.editing.pago) || {};
+  const list = S.pagos.filter(p => ui.pagosEstado === "todos" || (ui.pagosEstado === "pagado" ? p.estado === "Pagado" : p.estado !== "Pagado"))
+    .sort((a, b) => (a.vencimiento || "9999") < (b.vencimiento || "9999") ? -1 : (a.vencimiento || "9999") > (b.vencimiento || "9999") ? 1 : (b.monto || 0) - (a.monto || 0));
+  const pend = S.pagos.filter(p => p.estado !== "Pagado");
+  const tP = pend.filter(p => p.moneda !== "US$").reduce((s, p) => s + (p.monto || 0), 0);
+  const tU = pend.filter(p => p.moneda === "US$").reduce((s, p) => s + (p.monto || 0), 0);
+  const venc = pend.filter(p => p.vencimiento && p.vencimiento < today());
+  return `
+  <div class="grid">
+    <div class="card tile"><div class="label">Pendiente en pesos</div><div class="num">${pesos(tP)}</div></div>
+    <div class="card tile"><div class="label">Pendiente en dólares</div><div class="num">${usd(tU)}</div><div class="note">= ${pesos(tU * S.cfg.cotizacion)} a $${nf0.format(S.cfg.cotizacion)}</div></div>
+    <div class="card tile"><div class="label">Vencidos</div><div class="num ${venc.length ? "neg" : ""}">${venc.length}</div><div class="note">${pend.filter(p => p.monto == null).length} sin monto definido</div></div>
+  </div>
+  <div class="card"><h3>${e.id ? "Editar pago" : "Nuevo pago o vencimiento"}</h3>
+    <form class="f" id="fPago">
+      <label class="fl">Proveedor u organismo<input id="pg_prov" name="proveedor" list="dlProv" required value="${esc(e.proveedor || "")}"></label>
+      <datalist id="dlProv">${[...new Set(S.pagos.map(p => p.proveedor).filter(Boolean))].sort().map(n => `<option value="${esc(n)}">`).join("")}</datalist>
+      <label class="fl">Tipo<select id="pg_tipo" name="tipo">${opts(["Proveedor","Impuesto o BPS","Personal","Obra","Otro"], e.tipo || "Proveedor")}</select></label>
+      <label class="fl wide">Concepto<input id="pg_con" name="concepto" value="${esc(e.concepto || "")}"></label>
+      <label class="fl">Monto<input id="pg_monto" name="monto" inputmode="decimal" value="${e.monto ?? ""}" placeholder="Vacío si falta definir"></label>
+      <label class="fl">Moneda<select id="pg_mon" name="moneda">${opts(["$","US$"], e.moneda || "$")}</select></label>
+      <label class="fl">Vencimiento<input id="pg_venc" name="vencimiento" type="date" value="${esc(e.vencimiento || "")}"></label>
+      <label class="fl">Estado<select id="pg_est" name="estado">${opts(["Pendiente","Pagado"], e.estado || "Pendiente")}</select></label>
+      <label class="fl wide">Notas<input id="pg_not" name="notas" value="${esc(e.notas || "")}"></label>
+      <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>${e.id ? "Guardar cambios" : "Agregar"}</button>${e.id ? `<button class="b" type="button" data-act="cancelPago">Cancelar</button><button class="b danger" type="button" data-act="delPago" data-id="${e.id}">Borrar</button>` : ""}</div>
+    </form>
+  </div>
+  <div class="card">
+    <div class="toolbar"><h3 style="margin:0">Pagos</h3><select id="pgEst" aria-label="Estado">${[["pendiente","Pendientes"],["pagado","Pagados"],["todos","Todos"]].map(([k,l]) => `<option value="${k}" ${ui.pagosEstado === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Vence</th><th>Proveedor</th><th class="n">Monto</th><th></th></tr></thead><tbody>${list.map(p => `<tr><td>${p.estado === "Pagado" ? `<span class="pill good">Pagado</span>` : vencPill(p.vencimiento)}</td><td class="click" data-act="editPago" data-id="${p.id}">${esc(p.proveedor)} <span class="muted small">· ${esc(p.tipo || "")}</span><div class="muted small">${esc([p.concepto, p.notas].filter(Boolean).join(" · "))}</div></td><td class="n">${p.monto == null ? '<span class="pill warn">a definir</span>' : money(p.monto, p.moneda)}</td><td class="n">${p.estado !== "Pagado" ? `<button class="b small" data-act="pagar" data-id="${p.id}" ${roOnly()}>Marcar pagado</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay pagos en esta lista.</div>`}
+  </div>`;
+}
+
+function vAjustes() {
+  return `
+  <div class="card"><h3>Cotización y plazos</h3>
+    <form class="f" id="fCfg">
+      <label class="fl">Cotización del dólar ($ por US$)<input id="cfg_cot" name="cotizacion" inputmode="decimal" value="${S.cfg.cotizacion}"></label>
+      <label class="fl">Días hasta que OCA acredita la propina<input id="cfg_dias" name="diasAcreditacion" inputmode="numeric" value="${S.cfg.diasAcreditacion}"></label>
+      <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>Guardar</button><span class="muted small">La cotización queda fija hasta que la cambies. Los movimientos en dólares guardan la cotización del día en que se cargaron.</span></div>
+    </form></div>
+  <div class="card"><h3>Copia de los datos</h3>
+    <p class="muted small">Descargá todo en un archivo para tener una copia o para pasarlo a otro sistema más adelante.</p>
+    <div class="btns"><button class="b primary" data-act="exportJson">Descargar todo (JSON)</button>${["personal","movimientos","adelantos","pagos","propinas"].map(c => `<button class="b" data-act="exportCsv" data-id="${c}">${c[0].toUpperCase() + c.slice(1)} (CSV)</button>`).join("")}</div>
+  </div>`;
+}
+
+/* ---------- eventos ---------- */
+document.addEventListener("click", async ev => {
+  const tb = ev.target.closest("[data-tab]");
+  if (tb) { tab = tb.dataset.tab; ui.editing = {}; render(); window.scrollTo(0, 0); return; }
+  const el = ev.target.closest("[data-act]"); if (!el) return;
+  const id = el.dataset.id, act = el.dataset.act;
+  const conf = async (fn) => { if (el.dataset.confirm) { await fn(); } else { el.dataset.confirm = "1"; el.textContent = "¿Seguro? Tocá de nuevo"; setTimeout(() => { if (el.isConnected) { delete el.dataset.confirm; el.textContent = "Borrar"; } }, 3000); } };
+  switch (act) {
+    case "editMov": ui.editing.mov = id; render(); $("#fMov").scrollIntoView({block: "center"}); break;
+    case "cancelMov": ui.editing.mov = null; render(); break;
+    case "delMov": conf(async () => { await remove("movimientos", id); ui.editing.mov = null; }); break;
+    case "goAdel": tab = "adelantos"; ui.editing = {adel: id}; render(); break;
+    case "editArq": ui.editing.arq = id; render(); break;
+    case "cancelArq": ui.editing.arq = null; render(); break;
+    case "delArq": conf(async () => { await remove("arqueos", id); ui.editing.arq = null; }); break;
+    case "editCF": ui.editing.cf = id; render(); break;
+    case "cancelCF": ui.editing.cf = null; render(); break;
+    case "delCF": conf(async () => { await remove("cajaFuerte", id); ui.editing.cf = null; }); break;
+    case "editAdel": ui.editing.adel = id; render(); window.scrollTo(0, 0); break;
+    case "cancelAdel": ui.editing.adel = null; render(); break;
+    case "delAdel": conf(async () => { await remove("adelantos", id); ui.editing.adel = null; }); break;
+    case "entregar": if (await patch("adelantos", id, {estado: "Entregado", fecha: today()})) toast("Marcado como entregado hoy"); break;
+    case "descontar": if (await patch("adelantos", id, {descontado: true})) toast("Marcado como descontado"); break;
+    case "nodescontar": await patch("adelantos", id, {descontado: false}); break;
+    case "semPrev": ui.semana = addDays(ui.semana, -7); render(); break;
+    case "semNext": ui.semana = addDays(ui.semana, 7); render(); break;
+    case "verSem": ui.semana = id; render(); window.scrollTo(0, 0); break;
+    case "newPer": ui.editing.per = "nuevo"; render(); window.scrollTo(0, 0); break;
+    case "editPer": ui.editing.per = id; render(); window.scrollTo(0, 0); break;
+    case "cancelPer": ui.editing.per = null; render(); break;
+    case "delPer": conf(async () => { await remove("personal", id); ui.editing.per = null; }); break;
+    case "editPago": ui.editing.pago = id; render(); window.scrollTo(0, 0); break;
+    case "cancelPago": ui.editing.pago = null; render(); break;
+    case "delPago": conf(async () => { await remove("pagos", id); ui.editing.pago = null; }); break;
+    case "pagar": if (await patch("pagos", id, {estado: "Pagado", fechaPago: today()})) toast("Marcado como pagado"); break;
+    case "driveOk": if (await patch("pendientesDrive", id, {resuelto: true, resueltoFecha: today()})) toast("Marcado como cargado. Se puede deshacer abajo"); break;
+    case "driveUndo": if (await patch("pendientesDrive", id, {resuelto: false})) toast("Volvió a pendientes"); break;
+    case "exportJson": exportar("json"); break;
+    case "exportCsv": exportar("csv", id); break;
+  }
+});
+document.addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const f = ev.target, d = formData(f);
+  if (f.id === "fMov") {
+    const monto = numIn(d.monto); if (monto == null || monto <= 0) { toast("Poné un monto válido"); return; }
+    if (d.categoria === "__nuevo") { d.categoria = (d.catNueva || "").trim(); if (!d.categoria) { toast("Poné el nombre de la categoría nueva"); return; } if (!catsAll().map(norm).includes(norm(d.categoria))) await marcarNuevo("Categoría", d.categoria, "Fondo de dueños"); }
+    if (d.persona.trim() && !conocidos().has(norm(d.persona))) await marcarNuevo("Persona o proveedor", d.persona.trim(), "Fondo de dueños");
+    const old = S.movimientos.find(m => m.id === ui.editing.mov) || {};
+    const rec = {fecha: d.fecha, turno: d.turno, tipo: d.tipo, categoria: d.categoria, concepto: d.concepto.trim(), persona: d.persona.trim(), monto, moneda: d.moneda, cotizacion: d.moneda === "US$" ? (old.cotizacion || S.cfg.cotizacion) : null, formaPago: d.formaPago, notas: d.notas.trim(), cargadoPor: old.cargadoPor || S.perfil?.nombre || ""};
+    if (await save("movimientos", ui.editing.mov, rec)) { toast(ui.editing.mov ? "Movimiento actualizado" : "Movimiento agregado"); ui.editing.mov = null; render(); }
+  } else if (f.id === "fArq") {
+    const contado = numIn(d.contado); if (contado == null) { toast("Poné el efectivo contado"); return; }
+    const rec = {fecha: d.fecha, turno: d.turno, responsable: d.responsable.trim(), saldoSistema: numIn(d.saldoSistema), contado, lotes: numIn(d.lotes), comentario: d.comentario.trim()};
+    if (await save("arqueos", ui.editing.arq, rec)) { toast("Arqueo registrado"); ui.editing.arq = null; render(); }
+  } else if (f.id === "fCF") {
+    const p = numIn(d.pesos), u = numIn(d.dolares); if (!p && !u) { toast("Poné pesos o dólares"); return; }
+    const old = S.cajaFuerte.find(x => x.id === ui.editing.cf) || {};
+    const rec = {fecha: d.fecha, tipo: d.tipo, pesos: p, dolares: u, cotizacion: u ? (old.cotizacion || S.cfg.cotizacion) : null, motivo: d.motivo.trim()};
+    if (await save("cajaFuerte", ui.editing.cf, rec)) { toast("Guardado"); ui.editing.cf = null; render(); }
+  } else if (f.id === "fAdel") {
+    const monto = numIn(d.monto); if (!d.empleado || !monto) { toast("Elegí empleado y monto"); return; }
+    if (d.empleado === "__nuevo") {
+      const n = (d.nuevoNombre || "").trim(); if (!n) { toast("Poné el nombre de la persona nueva"); return; }
+      const ex = S.personal.find(p => norm(p.nombre) === norm(n));
+      if (!ex) { if (!await save("personal", slug(n), {nombre: n, sector: "Otros", cargo: "", alta: today(), baja: null, sueldoLiquido: null, sueldoNominal: null, laudo: false, horario: "", documento: "", telefono: "", contrato: "", notas: "Agregada desde Adelantos, completar ficha."})) return; await marcarNuevo("Persona", n, "Adelantos"); }
+      d.empleado = ex ? ex.nombre : n;
+    }
+    const old = S.adelantos.find(a => a.id === ui.editing.adel) || {};
+    const rec = {empleado: d.empleado, fecha: d.fecha, monto, estado: d.estado, descontado: !!old.descontado, notas: d.notas.trim()};
+    if (await save("adelantos", ui.editing.adel, rec)) { toast(ui.editing.adel ? "Adelanto actualizado" : "Adelanto agregado"); ui.editing.adel = null; render(); }
+  } else if (f.id === "fPer") {
+    const rec = {nombre: d.nombre.trim(), sector: d.sector, cargo: d.cargo.trim(), alta: d.alta || null, baja: d.baja || null, sueldoLiquido: numIn(d.sueldoLiquido), sueldoNominal: numIn(d.sueldoNominal), laudo: d.laudo === "Sí", horario: d.horario.trim(), documento: d.documento.trim(), telefono: d.telefono.trim(), contrato: d.contrato, notas: d.notas.trim()};
+    if (!rec.nombre) { toast("Poné el nombre"); return; }
+    const id = ui.editing.per === "nuevo" ? null : ui.editing.per;
+    if (await save("personal", id, rec)) { if (!id) await marcarNuevo("Persona", rec.nombre, "Personal"); toast("Ficha guardada"); ui.editing.per = null; render(); }
+  } else if (f.id === "fPago") {
+    if (d.proveedor.trim() && !conocidos().has(norm(d.proveedor))) await marcarNuevo("Proveedor", d.proveedor.trim(), "Pagos");
+    const rec = {proveedor: d.proveedor.trim(), tipo: d.tipo, concepto: d.concepto.trim(), monto: numIn(d.monto), moneda: d.moneda, vencimiento: d.vencimiento || null, estado: d.estado, notas: d.notas.trim()};
+    if (await save("pagos", ui.editing.pago, rec)) { toast("Guardado"); ui.editing.pago = null; render(); }
+  } else if (f.id === "fCfg") {
+    const cot = numIn(d.cotizacion), dias = numIn(d.diasAcreditacion);
+    if (!cot || cot <= 0) { toast("Poné una cotización válida"); return; }
+    try { await db.doc("config/general").set({cotizacion: cot, diasAcreditacion: dias || 15}); toast("Ajustes guardados"); } catch (e) { toast("No se pudo guardar"); }
+  }
+});
+document.addEventListener("change", async ev => {
+  const t = ev.target;
+  if (t.id === "ad_emp") { $("#ad_nuevoL").hidden = t.value !== "__nuevo"; if (t.value === "__nuevo") $("#ad_nuevo").focus(); }
+  else if (t.id === "m_cat") { $("#m_catNuevaL").hidden = t.value !== "__nuevo"; if (t.value === "__nuevo") $("#m_catNueva").focus(); }
+  else if (t.id === "movSemana") { ui.movSemana = t.value; render(); }
+  else if (t.id === "perEst") { ui.personalEstado = t.value; render(); }
+  else if (t.id === "pgEst") { ui.pagosEstado = t.value; render(); }
+  else if (t.id === "semPick" && t.value) { ui.semana = monday(t.value); render(); }
+  else if (t.dataset.prop) {
+    const [fecha, turno] = t.dataset.prop.split("|"); const v = numIn(t.value); const id = fecha + "_" + (turno === "Día" ? "dia" : "noche");
+    const cur = propina(fecha, turno);
+    if (v == null && t.value.trim() === "") { if (cur) await remove("propinas", id); return; }
+    if (v == null || v < 0) { toast("Monto no válido"); t.value = cur?.monto ?? ""; return; }
+    if (cur && cur.monto === v) return;
+    if (await save("propinas", id, {fecha, turno, monto: v})) toast("Propina guardada");
+  } else if (t.dataset.sem) {
+    const cur = S.semanasPropina.find(s => s.id === ui.semana) || {};
+    await save("semanasPropina", ui.semana, {acreditada: !!cur.acreditada, entregada: !!cur.entregada, [t.dataset.sem]: t.checked});
+  }
+});
+document.addEventListener("input", ev => { if (ev.target.id === "perQ") { ui.personalQ = ev.target.value; render(); } });
+
+
+/* ---------- usuarios ---------- */
+const ROLES = [["admin","Administrador: ve, carga y maneja usuarios"],["carga","Carga: ve y carga datos"],["lectura","Solo ver"]];
+async function cargarPerfiles() {
+  const {data, error} = await sb.from("perfiles").select("*").order("creado");
+  if (!error) { S.perfiles = data; render(); }
+}
+function vUsuarios() {
+  if (S.perfil.rol !== "admin") return `<div class="card empty">Solo un administrador ve esta pantalla.</div>`;
+  const ps = S.perfiles || [];
+  return `
+  <div class="card"><h3>Nuevo usuario</h3>
+    <form class="f" id="fUser">
+      <label class="fl">Nombre<input id="u_nom" name="nombre" required autocomplete="off"></label>
+      <label class="fl">Email (es el usuario para entrar)<input id="u_mail" name="email" type="email" required autocomplete="off"></label>
+      <label class="fl">Contraseña (mínimo 8)<input id="u_pw" name="password" type="text" minlength="8" required autocomplete="new-password"></label>
+      <label class="fl">Permiso<select id="u_rol" name="rol">${ROLES.map(([k, l]) => `<option value="${k}" ${k === "lectura" ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      <div class="btns wide"><button class="b primary" type="submit">Crear usuario</button><span class="muted small">Pasale el email y la contraseña a la persona. El email no necesita ser real, pero tiene que tener forma de email.</span></div>
+    </form>
+  </div>
+  <div class="card"><h3>Usuarios</h3>
+    ${ps.length ? `<div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Email</th><th>Permiso</th><th>Activo</th></tr></thead><tbody>${ps.map(p => `<tr><td>${esc(p.nombre)}${p.id === S.perfil.id ? ` <span class="pill acc">vos</span>` : ""}</td><td>${esc(p.email)}</td><td><select data-perfil-rol="${p.id}" ${p.id === S.perfil.id ? "disabled" : ""} aria-label="Permiso de ${esc(p.nombre)}">${ROLES.map(([k, l]) => `<option value="${k}" ${p.rol === k ? "selected" : ""}>${l.split(":")[0]}</option>`).join("")}</select></td><td><input type="checkbox" data-perfil-activo="${p.id}" ${p.activo ? "checked" : ""} ${p.id === S.perfil.id ? "disabled" : ""} aria-label="Activo"></td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">Cargando usuarios…</div>`}
+    <p class="muted small" style="margin:10px 0 0">Para sacarle el acceso a alguien, destildá Activo. Deja de ver todo en el momento.</p>
+  </div>`;
+}
+document.addEventListener("submit", async ev => {
+  const f = ev.target;
+  if (f.id === "fLogin") {
+    ev.preventDefault(); ev.stopImmediatePropagation();
+    const d = formData(f); const btn = f.querySelector("button"); btn.disabled = true;
+    const {error} = await sb.auth.signInWithPassword({email: d.email.trim(), password: d.password});
+    btn.disabled = false;
+    if (error) { $("#loginErr").textContent = "Email o contraseña incorrectos."; return; }
+    arrancar();
+  } else if (f.id === "fUser") {
+    ev.preventDefault(); ev.stopImmediatePropagation();
+    const d = formData(f); const btn = f.querySelector("button[type=submit]"); btn.disabled = true;
+    const {error} = await sb.rpc("crear_usuario", {p_email: d.email.trim(), p_password: d.password, p_nombre: d.nombre.trim(), p_rol: d.rol});
+    btn.disabled = false;
+    if (error) { toast(error.message || "No se pudo crear"); return; }
+    toast("Usuario creado"); f.reset(); cargarPerfiles();
+  }
+}, true);
+document.addEventListener("change", async ev => {
+  const t = ev.target;
+  if (t.dataset.perfilRol) { const {error} = await sb.from("perfiles").update({rol: t.value}).eq("id", t.dataset.perfilRol); toast(error ? "No se pudo cambiar" : "Permiso cambiado"); cargarPerfiles(); }
+  else if (t.dataset.perfilActivo) { const {error} = await sb.from("perfiles").update({activo: t.checked}).eq("id", t.dataset.perfilActivo); toast(error ? "No se pudo cambiar" : (t.checked ? "Usuario activado" : "Usuario desactivado")); cargarPerfiles(); }
+});
+
+/* ---------- exportar ---------- */
+async function exportar(kind, col) {
+  let filename, data;
+  if (kind === "json") {
+    const out = {exportado: new Date().toISOString(), config: S.cfg}; COLS.forEach(c => out[c] = S[c]);
+    filename = "caja-toro-negro-" + today() + ".json"; data = JSON.stringify(out, null, 2);
+  } else {
+    const rows = S[col]; const keys = [...new Set(rows.flatMap(r => Object.keys(r)))];
+    const cell = v => { const s = v == null ? "" : String(v); return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    data = "﻿" + [keys.join(","), ...rows.map(r => keys.map(k => cell(r[k])).join(","))].join("\n");
+    filename = col + "-" + today() + ".csv";
+  }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([data], {type: kind === "json" ? "application/json" : "text/csv"})); a.download = filename; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); toast("Archivo descargado");
+}
+
+/* ---------- arranque (Supabase) ---------- */
+const sb = supabase.createClient("https://wijehcmarrhmjcqiylgb.supabase.co", "sb_publishable_UFi71ca2cSuNHlxlJj4eKA_9MlNLlgv");
+function makeDb() {
+  const timers = {}, loaders = {};
+  const after = c => { if (loaders[c]) loaders[c](); };
+  const docRef = (c, id) => ({
+    set: async v => { const {error} = await sb.from(c).upsert({...v, id}); if (error) throw error; after(c); },
+    update: async v => { const {error} = await sb.from(c).update(v).eq("id", id); if (error) throw error; after(c); },
+    delete: async () => { const {error} = await sb.from(c).delete().eq("id", id); if (error) throw error; after(c); },
+    onSnapshot: (cb, err) => {
+      const load = async () => { const {data, error} = await sb.from(c).select("*").eq("id", id).maybeSingle(); if (error) { err && err(error); return; } cb({exists: !!data, data: () => data, metadata: {fromCache: false}}); };
+      load(); const ch = sb.channel("rt-" + c + "-" + id).on("postgres_changes", {event: "*", schema: "public", table: c}, () => load()).subscribe();
+      return () => sb.removeChannel(ch);
+    }
+  });
+  return {
+    collection: c => ({
+      doc: id => docRef(c, id),
+      onSnapshot: (cb, err) => {
+        const load = async () => {
+          const {data, error} = await sb.from(c).select("*").limit(10000);
+          if (error) { err && err(error); return; }
+          cb({docs: data.map(r => { const {id, ...rest} = r; return {id, data: () => rest}; }), metadata: {fromCache: false}});
+        };
+        loaders[c] = load; load();
+        const ch = sb.channel("rt-" + c).on("postgres_changes", {event: "*", schema: "public", table: c}, () => { clearTimeout(timers[c]); timers[c] = setTimeout(load, 200); }).subscribe();
+        return () => sb.removeChannel(ch);
+      }
+    }),
+    doc: p => { const [c, id] = p.split("/"); return docRef(c, id); }
+  };
+}
+function pantallaLogin(msg) {
+  S.perfil = null; renderTabs(); $("#btnSalir").hidden = true; $("#quien").textContent = ""; $("#syncNote").textContent = "";
+  $("#main").innerHTML = `<form class="card login" id="fLogin">
+    <img class="logo-big" src="${$(".logo").src}" alt="Toro Negro">
+    <h2 style="text-align:center">Entrar</h2>
+    ${msg ? `<div class="banner">${esc(msg)}</div>` : ""}
+    <label class="fl">Email<input name="email" type="email" required autocomplete="username"></label>
+    <label class="fl">Contraseña<input name="password" type="password" required autocomplete="current-password"></label>
+    <button class="b primary" type="submit">Entrar</button>
+    <div id="loginErr" class="small" style="color:var(--bad)"></div>
+  </form>`;
+}
+let arrancado = false;
+async function arrancar() {
+  const {data: {session}} = await sb.auth.getSession();
+  if (!session) { pantallaLogin(); return; }
+  const {data: perfil} = await sb.from("perfiles").select("*").eq("id", session.user.id).maybeSingle();
+  if (!perfil || !perfil.activo) { await sb.auth.signOut(); pantallaLogin("Tu usuario no está habilitado. Pedile acceso a Facundo."); return; }
+  S.perfil = perfil; S.canWrite = perfil.rol !== "lectura";
+  $("#btnSalir").hidden = false; $("#quien").textContent = perfil.nombre;
+  if (arrancado) { render(); return; }
+  arrancado = true;
+  db = makeDb();
+  $("#main").innerHTML = `<div class="card empty">Cargando los datos de la base…</div>`;
+  let pending = COLS.length + 1;
+  const timer = setTimeout(() => { $("#syncNote").textContent = "La base tarda en responder"; }, 10000);
+  const done = () => { if (--pending <= 0) { clearTimeout(timer); $("#syncNote").textContent = S.canWrite ? "Al día" : "Solo lectura"; } };
+  COLS.forEach(col => {
+    let first = true;
+    db.collection(col).onSnapshot(snap => {
+      S[col] = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      if (first) { first = false; done(); }
+      render();
+    }, err => { if (first) { first = false; done(); } $("#syncNote").textContent = "Error de conexión"; });
+  });
+  let firstCfg = true;
+  db.doc("config/general").onSnapshot(s => { if (s.exists) S.cfg = {cotizacion: 41, diasAcreditacion: 15, ...s.data()}; if (firstCfg) { firstCfg = false; done(); } render(); }, () => { if (firstCfg) { firstCfg = false; done(); } });
+  if (perfil.rol === "admin") cargarPerfiles();
+}
+$("#btnSalir").addEventListener("click", async () => { await sb.auth.signOut(); location.reload(); });
+arrancar();
+})();
+</script>
+
+</body>
+</html>
