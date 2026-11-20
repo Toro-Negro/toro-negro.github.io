@@ -146,3 +146,4 @@ grant execute on function public.crear_usuario(text,text,text,text) to authentic
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on all tables in schema public to authenticated;
 grant execute on function public.mi_rol() to authenticated;
+alter table public.movimientos add column if not exists estado text not null default 'Pagado';

@@ -145,11 +145,12 @@ const TABS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retir
 const enPesos = (monto, moneda, cot) => moneda === "US$" ? (monto || 0) * (cot || S.cfg.cotizacion) : (monto || 0);
 function cajaTotales(desde) {
   let ing = 0, egr = 0;
-  S.movimientos.forEach(m => { if (desde && m.fecha < desde) return; const v = enPesos(m.monto, m.moneda, m.cotizacion); if (m.tipo === "Ingreso") ing += v; else egr += v; });
+  S.movimientos.forEach(m => { if (desde && m.fecha < desde) return; if (m.estado === "Pendiente de pago") return; const v = enPesos(m.monto, m.moneda, m.cotizacion); if (m.tipo === "Ingreso") ing += v; else egr += v; });
   let adel = 0;
   S.adelantos.forEach(a => { if (a.estado !== "Entregado") return; if (desde && a.fecha < desde) return; adel += a.monto || 0; });
   return {ing, egr: egr + adel, adel, saldo: ing - egr - adel};
 }
+const movPend = () => S.movimientos.filter(m => m.estado === "Pendiente de pago");
 function fuerteTotales() {
   let p = 0, u = 0;
   S.cajaFuerte.forEach(x => { const s = x.tipo === "Salida" ? -1 : 1; p += s * (x.pesos || 0); u += s * (x.dolares || 0); });
@@ -220,7 +221,7 @@ function vResumen() {
   const ps = semanaPropina(monday(today()));
   return `
   <div class="grid">
-    <div class="card tile"><div class="label">Fondo de dueños</div><div class="num">${pesos(c.saldo)}</div><div class="note">Quedan de ${pesos(c.ing)} recibidos · gastado ${pesos(c.egr)}</div></div>
+    <div class="card tile"><div class="label">Fondo de dueños</div><div class="num">${pesos(c.saldo)}</div><div class="note">Quedan de ${pesos(c.ing)} recibidos · gastado ${pesos(c.egr)}${movPend().length ? " · " + pesos(movPend().reduce((t, m) => t + enPesos(m.monto, m.moneda, m.cotizacion), 0)) + " por pagar" : ""}</div></div>
     <div class="card tile"><div class="label">Retiros de caja</div><div class="num">${pesos(f.pesos)}</div><div class="note">y ${usd(f.usd)} · total ${pesos(f.equiv)} a $${nf0.format(S.cfg.cotizacion)}</div></div>
     <div class="card tile"><div class="label">Adelantos a descontar</div><div class="num">${pesos(adel)}</div><div class="note">${pendEnt.length ? pendEnt.length + " sin entregar (" + pesos(pendEnt.reduce((s,a)=>s+(a.monto||0),0)) + ")" : "Todos entregados"}</div></div>
     <div class="card tile"><div class="label">Deuda pendiente</div><div class="num">${pesos(deudaP)}</div><div class="note">y ${usd(deudaU)} · ${pend.length} pagos</div></div>
@@ -260,6 +261,7 @@ function vCaja() {
     <div class="card tile"><div class="label">Quedan del fondo</div><div class="num">${pesos(c.saldo)}</div><div class="note">Plata que te dieron los dueños, guardada en la caja fuerte</div></div>
     <div class="card tile"><div class="label">Recibido</div><div class="num pos">${pesos(c.ing)}</div></div>
     <div class="card tile"><div class="label">Egresos</div><div class="num neg">${pesos(c.egr)}</div><div class="note">Incluye ${pesos(c.adel)} de adelantos</div></div>
+    <div class="card tile"><div class="label">Gastos pendientes de pago</div><div class="num">${pesos(movPend().reduce((t, m) => t + enPesos(m.monto, m.moneda, m.cotizacion), 0))}</div><div class="note">${movPend().length ? movPend().length + " sin pagar, no se descuentan todavía" : "Ninguno"}</div></div>
   </div>
   <div class="card"><h3>${e.id ? "Editar movimiento" : "Nuevo movimiento"}</h3>
     <form class="f" id="fMov">
@@ -272,6 +274,7 @@ function vCaja() {
       <label class="fl">Concepto<input id="m_concepto" name="concepto" value="${esc(e.concepto || "")}"></label>
       <label class="fl">Monto<input id="m_monto" name="monto" inputmode="decimal" required value="${e.monto ?? ""}"></label>
       <label class="fl">Moneda<select id="m_moneda" name="moneda">${opts(["$","US$"], e.moneda || "$")}</select></label>
+      <label class="fl">Estado<select id="m_estado" name="estado">${opts(["Pagado","Pendiente de pago"], e.estado || "Pagado")}</select></label>
       <label class="fl">Forma de pago<select id="m_fp" name="formaPago">${opts(["Efectivo","Transferencia","Cheque","Tarjeta"], e.formaPago || "Efectivo")}</select></label>
       <label class="fl wide">Notas<input id="m_notas" name="notas" value="${esc(e.notas || "")}"></label>
       <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>${e.id ? "Guardar cambios" : "Agregar movimiento"}</button>${e.id ? `<button class="b" type="button" data-act="cancelMov">Cancelar</button><button class="b danger" type="button" data-act="delMov" data-id="${e.id}">Borrar</button>` : ""}<span class="muted small">Los adelantos se cargan en la pestaña Adelantos. Si escribís una persona o proveedor que no está en la lista, queda anotado para pasar a Drive.</span></div>
@@ -282,7 +285,7 @@ function vCaja() {
     <div class="toolbar"><h3 style="margin:0">Movimientos</h3>
       <select id="movSemana" aria-label="Período"><option value="">Todos</option><option value="${monday(today())}" ${ui.movSemana === monday(today()) ? "selected" : ""}>Esta semana</option><option value="${today()}" ${ui.movSemana === today() ? "selected" : ""}>Hoy</option></select></div>
     ${rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Detalle</th><th>Categoría</th><th class="n">Monto</th></tr></thead><tbody>
-    ${rows.map(m => `<tr class="click" data-act="${m._k === "mov" ? "editMov" : "goAdel"}" data-id="${m.id}"><td>${fmtD(m.fecha)}${m.turno ? `<div class="muted small">${esc(m.turno)}</div>` : ""}</td><td>${esc(m.persona || "")}<div class="muted small">${esc([m.concepto, m.notas].filter(Boolean).join(" · "))}</div></td><td><span class="pill ${m.tipo === "Ingreso" ? "good" : "mute"}">${esc(m.categoria)}</span></td><td class="n ${m.tipo === "Ingreso" ? "pos" : ""}">${m.tipo === "Ingreso" ? "+" : "−"} ${money(m.monto, m.moneda)}</td></tr>`).join("")}
+    ${rows.map(m => `<tr class="click" data-act="${m._k === "mov" ? "editMov" : "goAdel"}" data-id="${m.id}"><td>${fmtD(m.fecha)}${m.turno ? `<div class="muted small">${esc(m.turno)}</div>` : ""}</td><td>${esc(m.persona || "")}<div class="muted small">${esc([m.concepto, m.notas].filter(Boolean).join(" · "))}</div></td><td><span class="pill ${m.tipo === "Ingreso" ? "good" : "mute"}">${esc(m.categoria)}</span>${m.estado === "Pendiente de pago" ? ` <span class="pill warn">Pendiente de pago</span>` : ""}</td><td class="n ${m.tipo === "Ingreso" ? "pos" : ""}">${m.tipo === "Ingreso" ? "+" : "−"} ${money(m.monto, m.moneda)}${m.estado === "Pendiente de pago" ? `<div style="margin-top:4px"><button class="b small" data-act="pagarMov" data-id="${m.id}" ${roOnly()}>Marcar pagado</button></div>` : ""}</td></tr>`).join("")}
     </tbody></table></div>` : `<div class="empty">No hay movimientos en este período. Cargá el primero con el formulario de arriba.</div>`}
   </div>
   <div class="card"><h3>${ea.id ? "Editar arqueo" : "Arqueo y cierre de turno"}</h3>
@@ -483,6 +486,7 @@ document.addEventListener("click", async ev => {
   switch (act) {
     case "editMov": ui.editing.mov = id; render(); $("#fMov").scrollIntoView({block: "center"}); break;
     case "cancelMov": ui.editing.mov = null; render(); break;
+    case "pagarMov": if (await patch("movimientos", id, {estado: "Pagado", fecha: today()})) toast("Marcado como pagado hoy, ya se descontó del fondo"); break;
     case "delMov": conf(async () => { await remove("movimientos", id); ui.editing.mov = null; }); break;
     case "goAdel": tab = "adelantos"; ui.editing = {adel: id}; render(); break;
     case "editArq": ui.editing.arq = id; render(); break;
@@ -522,7 +526,7 @@ document.addEventListener("submit", async ev => {
     if (d.categoria === "__nuevo") { d.categoria = (d.catNueva || "").trim(); if (!d.categoria) { toast("Poné el nombre de la categoría nueva"); return; } if (!catsAll().map(norm).includes(norm(d.categoria))) await marcarNuevo("Categoría", d.categoria, "Fondo de dueños"); }
     if (d.persona.trim() && !conocidos().has(norm(d.persona))) await marcarNuevo("Persona o proveedor", d.persona.trim(), "Fondo de dueños");
     const old = S.movimientos.find(m => m.id === ui.editing.mov) || {};
-    const rec = {fecha: d.fecha, turno: d.turno, tipo: d.tipo, categoria: d.categoria, concepto: d.concepto.trim(), persona: d.persona.trim(), monto, moneda: d.moneda, cotizacion: d.moneda === "US$" ? (old.cotizacion || S.cfg.cotizacion) : null, formaPago: d.formaPago, notas: d.notas.trim(), cargadoPor: old.cargadoPor || S.perfil?.nombre || ""};
+    const rec = {fecha: d.fecha, turno: d.turno, tipo: d.tipo, categoria: d.categoria, concepto: d.concepto.trim(), persona: d.persona.trim(), monto, moneda: d.moneda, cotizacion: d.moneda === "US$" ? (old.cotizacion || S.cfg.cotizacion) : null, formaPago: d.formaPago, estado: d.tipo === "Ingreso" ? "Pagado" : (d.estado || "Pagado"), notas: d.notas.trim(), cargadoPor: old.cargadoPor || S.perfil?.nombre || ""};
     if (await save("movimientos", ui.editing.mov, rec)) { toast(ui.editing.mov ? "Movimiento actualizado" : "Movimiento agregado"); ui.editing.mov = null; render(); }
   } else if (f.id === "fArq") {
     const contado = numIn(d.contado); if (contado == null) { toast("Poné el efectivo contado"); return; }
