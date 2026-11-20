@@ -149,3 +149,26 @@ grant execute on function public.mi_rol() to authenticated;
 alter table public.movimientos add column if not exists estado text not null default 'Pagado';
 alter table public.adelantos add column if not exists origen text not null default 'Fondo de dueños';
 alter table public.pagos add column if not exists "pagadoDesde" text;
+
+-- ---------- editar usuarios desde la app (solo admin) ----------
+create or replace function public.editar_usuario(p_id uuid, p_nombre text, p_email text, p_password text default null)
+returns void language plpgsql security definer set search_path = public, auth, extensions as $$
+declare v_email text := lower(trim(p_email));
+begin
+  if public.mi_rol() is distinct from 'admin' then raise exception 'Solo un administrador puede editar usuarios'; end if;
+  if coalesce(trim(p_nombre), '') = '' then raise exception 'Poné el nombre'; end if;
+  if v_email !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' then raise exception 'El email no es válido'; end if;
+  if exists (select 1 from auth.users where lower(email) = v_email and id <> p_id) then raise exception 'Ya existe otro usuario con ese email'; end if;
+  if p_password is not null and p_password <> '' and length(p_password) < 8 then raise exception 'La contraseña tiene que tener al menos 8 caracteres'; end if;
+  update auth.users set email = v_email,
+    encrypted_password = case when coalesce(p_password, '') <> '' then crypt(p_password, gen_salt('bf')) else encrypted_password end,
+    raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('nombre', trim(p_nombre)),
+    updated_at = now()
+  where id = p_id;
+  if not found then raise exception 'No existe ese usuario'; end if;
+  update auth.identities set identity_data = coalesce(identity_data, '{}'::jsonb) || jsonb_build_object('email', v_email), updated_at = now()
+  where user_id = p_id and provider = 'email';
+  update public.perfiles set nombre = trim(p_nombre), email = v_email where id = p_id;
+end $$;
+revoke all on function public.editar_usuario(uuid,text,text,text) from public, anon;
+grant execute on function public.editar_usuario(uuid,text,text,text) to authenticated;

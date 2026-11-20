@@ -607,6 +607,18 @@ async function cargarPerfiles() {
 function vUsuarios() {
   if (S.perfil.rol !== "admin") return `<div class="card empty">Solo un administrador ve esta pantalla.</div>`;
   const ps = S.perfiles || [];
+  const eu = ps.find(p => p.id === S.editUser);
+  if (eu) { const yo = eu.id === S.perfil.id; return `
+  <div class="card"><h3>Editar usuario</h3>
+    <form class="f" id="fEditUser" data-id="${eu.id}">
+      <label class="fl">Nombre<input id="eu_nom" name="nombre" required value="${esc(eu.nombre)}" autocomplete="off"></label>
+      <label class="fl">Email (usuario para entrar)<input id="eu_mail" name="email" type="email" required value="${esc(eu.email)}" autocomplete="off"></label>
+      <label class="fl">Nueva contraseña (dejala vacía para no cambiarla)<input id="eu_pw" name="password" type="text" minlength="8" autocomplete="new-password"></label>
+      <label class="fl">Permiso<select id="eu_rol" name="rol" ${yo ? "disabled" : ""}>${ROLES.map(([k, l]) => `<option value="${k}" ${eu.rol === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      <label class="fl">Activo<select id="eu_act" name="activo" ${yo ? "disabled" : ""}><option value="si" ${eu.activo ? "selected" : ""}>Sí, puede entrar</option><option value="no" ${eu.activo ? "" : "selected"}>No, sin acceso</option></select></label>
+      <div class="btns wide"><button class="b primary" type="submit">Guardar cambios</button><button class="b" type="button" data-act="cancelEditUser">Cancelar</button>${yo ? `<span class="muted small">Tu propio permiso no se puede cambiar desde acá.</span>` : `<span class="muted small">Si cambiás el email o la contraseña, avisale a la persona.</span>`}</div>
+    </form>
+  </div>`; }
   return `
   <div class="card"><h3>Nuevo usuario</h3>
     <form class="f" id="fUser">
@@ -618,7 +630,7 @@ function vUsuarios() {
     </form>
   </div>
   <div class="card"><h3>Usuarios</h3>
-    ${ps.length ? `<div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Email</th><th>Permiso</th><th>Activo</th></tr></thead><tbody>${ps.map(p => `<tr><td>${esc(p.nombre)}${p.id === S.perfil.id ? ` <span class="pill acc">vos</span>` : ""}</td><td>${esc(p.email)}</td><td><select data-perfil-rol="${p.id}" ${p.id === S.perfil.id ? "disabled" : ""} aria-label="Permiso de ${esc(p.nombre)}">${ROLES.map(([k, l]) => `<option value="${k}" ${p.rol === k ? "selected" : ""}>${l.split(":")[0]}</option>`).join("")}</select></td><td><input type="checkbox" data-perfil-activo="${p.id}" ${p.activo ? "checked" : ""} ${p.id === S.perfil.id ? "disabled" : ""} aria-label="Activo"></td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">Cargando usuarios…</div>`}
+    ${ps.length ? `<div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Email</th><th>Permiso</th><th>Activo</th><th></th></tr></thead><tbody>${ps.map(p => `<tr><td>${esc(p.nombre)}${p.id === S.perfil.id ? ` <span class="pill acc">vos</span>` : ""}</td><td>${esc(p.email)}</td><td><select data-perfil-rol="${p.id}" ${p.id === S.perfil.id ? "disabled" : ""} aria-label="Permiso de ${esc(p.nombre)}">${ROLES.map(([k, l]) => `<option value="${k}" ${p.rol === k ? "selected" : ""}>${l.split(":")[0]}</option>`).join("")}</select></td><td><input type="checkbox" data-perfil-activo="${p.id}" ${p.activo ? "checked" : ""} ${p.id === S.perfil.id ? "disabled" : ""} aria-label="Activo"></td><td class="n"><button class="b small" type="button" data-act="editUser" data-id="${p.id}">Editar</button></td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">Cargando usuarios…</div>`}
     <p class="muted small" style="margin:10px 0 0">Para sacarle el acceso a alguien, destildá Activo. Deja de ver todo en el momento.</p>
   </div>`;
 }
@@ -631,6 +643,16 @@ document.addEventListener("submit", async ev => {
     btn.disabled = false;
     if (error) { $("#loginErr").textContent = "Email o contraseña incorrectos."; return; }
     arrancar();
+  } else if (f.id === "fEditUser") {
+    ev.preventDefault(); ev.stopImmediatePropagation();
+    const d = formData(f); const id = f.dataset.id; const btn = f.querySelector("button[type=submit]"); btn.disabled = true;
+    const {error} = await sb.rpc("editar_usuario", {p_id: id, p_nombre: d.nombre.trim(), p_email: d.email.trim(), p_password: d.password || null});
+    let err = error;
+    if (!err && id !== S.perfil.id) { const r = await sb.from("perfiles").update({rol: d.rol, activo: d.activo === "si"}).eq("id", id); err = r.error; }
+    btn.disabled = false;
+    if (err) { toast(err.message || "No se pudo guardar"); return; }
+    if (id === S.perfil.id) { S.perfil.nombre = d.nombre.trim(); $("#quien").textContent = S.perfil.nombre; }
+    S.editUser = null; toast("Usuario actualizado"); cargarPerfiles();
   } else if (f.id === "fUser") {
     ev.preventDefault(); ev.stopImmediatePropagation();
     const d = formData(f); const btn = f.querySelector("button[type=submit]"); btn.disabled = true;
@@ -640,6 +662,10 @@ document.addEventListener("submit", async ev => {
     toast("Usuario creado"); f.reset(); cargarPerfiles();
   }
 }, true);
+document.addEventListener("click", ev => {
+  const b = ev.target.closest("[data-act=editUser],[data-act=cancelEditUser]"); if (!b) return;
+  S.editUser = b.dataset.act === "editUser" ? b.dataset.id : null; render(); window.scrollTo(0, 0);
+});
 document.addEventListener("change", async ev => {
   const t = ev.target;
   if (t.dataset.perfilRol) { const {error} = await sb.from("perfiles").update({rol: t.value}).eq("id", t.dataset.perfilRol); toast(error ? "No se pudo cambiar" : "Permiso cambiado"); cargarPerfiles(); }
