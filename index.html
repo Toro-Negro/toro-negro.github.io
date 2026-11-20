@@ -80,6 +80,7 @@ tr.click:hover td{background:var(--surface-2)}
 .week{display:grid;gap:8px}
 .week .d{display:grid;grid-template-columns:minmax(90px,1.2fr) 1fr 1fr minmax(80px,.8fr);gap:8px;align-items:center}
 .week .d.hd{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+.week input.dirty{background:var(--warn-soft);border-color:var(--warn)}
 .status{font-size:12px;color:var(--muted)}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:8px;font-weight:600;z-index:20}
 .banner{background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:10px 12px;font-size:13px}
@@ -137,7 +138,7 @@ const S = {cfg: {cotizacion: 41, diasAcreditacion: 15}, ready: {}, canWrite: tru
 COLS.forEach(c => S[c] = []);
 let db = null, dl = true;
 let tab = "resumen";
-const ui = {editing: {}, personalQ: "", personalEstado: "activos", pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
+const ui = {editing: {}, propDraft: {}, personalQ: "", personalEstado: "activos", pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
 
 const TABS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retiros de caja"],["adelantos","Adelantos"],["propinas","Propinas"],["personal","Personal"],["pagos","Pagos y vencimientos"],["ajustes","Ajustes"],["usuarios","Usuarios"]];
 
@@ -394,6 +395,23 @@ function vAdelantos() {
   ${desc.length ? `<div class="card"><h3>Ya descontados</h3>${tbl(desc, a => `<button class="b small" data-act="nodescontar" data-id="${a.id}" ${roOnly()}>Deshacer</button>`, "")}</div>` : ""}`;
 }
 
+const propKey = (f, t) => f + "|" + t;
+const propVal = (f, t) => ui.propDraft[propKey(f, t)] ?? (propina(f, t)?.monto ?? "");
+const propDirty = (f, t) => propKey(f, t) in ui.propDraft ? "dirty" : "";
+const propBtnTxt = () => { const n = Object.keys(ui.propDraft).length; return n ? `Guardar propinas (${n} ${n === 1 ? "cambio" : "cambios"})` : "Guardar propinas"; };
+async function guardarPropinas() {
+  const ent = Object.entries(ui.propDraft); if (!ent.length) { toast("No hay cambios para guardar"); return; }
+  for (const [k, raw] of ent) { const v = numIn(raw); if (String(raw).trim() !== "" && (v == null || v < 0)) { toast("Monto no válido: " + raw); return; } }
+  const btn = $("#btnProp"); if (btn) btn.disabled = true;
+  let ok = true;
+  for (const [k, raw] of ent) {
+    const [fecha, turno] = k.split("|"); const id = fecha + "_" + (turno === "Día" ? "dia" : "noche"); const v = numIn(raw);
+    if (String(raw).trim() === "") { if (propina(fecha, turno)) { try { await db.collection("propinas").doc(id).delete(); } catch (e) { ok = false; continue; } } }
+    else if (!(await save("propinas", id, {fecha, turno, monto: v}))) { ok = false; continue; }
+    delete ui.propDraft[k];
+  }
+  toast(ok ? "Propinas guardadas" : "Algunas no se pudieron guardar, probá de nuevo"); render();
+}
 function vPropinas() {
   const w = semanaPropina(ui.semana);
   const st = S.semanasPropina.find(s => s.id === ui.semana) || {};
@@ -404,15 +422,16 @@ function vPropinas() {
   <div class="card">
     <div class="toolbar"><h3 style="margin:0">Propina con tarjeta, semana del lunes ${fmtD(ui.semana)}</h3>
       <div class="btns"><button class="b small" data-act="semPrev" aria-label="Semana anterior">← Anterior</button><input id="semPick" type="date" value="${ui.semana}" aria-label="Elegir semana" style="width:auto"><button class="b small" data-act="semNext" aria-label="Semana siguiente">Siguiente →</button></div></div>
-    <p class="muted small">Anotá el monto con tarjeta de cada turno, del cierre de lote que pasan las cajeras. Se guarda al salir del casillero. Podés cargar días pasados o futuros.</p>
+    <p class="muted small">Anotá el monto con tarjeta de cada turno, del cierre de lote que pasan las cajeras. Cuando termines, tocá <strong>Guardar propinas</strong>. Podés cargar días pasados o futuros.</p>
     <div class="week">
       <div class="d hd"><span>Día</span><span>Turno día ($)</span><span>Turno noche ($)</span><span style="text-align:right">Total</span></div>
       ${w.dias.map(r => `<div class="d"><span>${dia(r.f)} <span class="muted small">${fmtD(r.f).slice(0,5)}</span></span>
-        <input id="pd_${r.f}" data-prop="${r.f}|Día" inputmode="decimal" value="${propina(r.f,"Día")?.monto ?? ""}" aria-label="Turno día ${fmtD(r.f)}" ${roOnly()}>
-        <input id="pn_${r.f}" data-prop="${r.f}|Noche" inputmode="decimal" value="${propina(r.f,"Noche")?.monto ?? ""}" aria-label="Turno noche ${fmtD(r.f)}" ${roOnly()}>
+        <input id="pd_${r.f}" data-prop="${r.f}|Día" inputmode="decimal" value="${esc(propVal(r.f, "Día"))}" class="${propDirty(r.f, "Día")}" aria-label="Turno día ${fmtD(r.f)}" ${roOnly()}>
+        <input id="pn_${r.f}" data-prop="${r.f}|Noche" inputmode="decimal" value="${esc(propVal(r.f, "Noche"))}" class="${propDirty(r.f, "Noche")}" aria-label="Turno noche ${fmtD(r.f)}" ${roOnly()}>
         <strong style="text-align:right">${pesos(r.t)}</strong></div>`).join("")}
       <div class="d" style="border-top:1px solid var(--line);padding-top:8px"><strong>Total semana</strong><span class="muted">${pesos(w.dias.reduce((s,r)=>s+r.d,0))}</span><span class="muted">${pesos(w.dias.reduce((s,r)=>s+r.n,0))}</span><strong style="text-align:right">${pesos(w.total)}</strong></div>
     </div>
+    <div class="btns" style="margin-top:12px"><button class="b primary" id="btnProp" data-act="guardarProp" ${roOnly()}>${propBtnTxt()}</button><span class="muted small" id="propEstado">${Object.keys(ui.propDraft).length ? "Hay cambios sin guardar" : "Todo guardado"}</span></div>
   </div>
   <div class="row2">
     <div class="card"><h3>Entrega al jefe de cocina</h3><dl class="kv">
@@ -551,6 +570,7 @@ document.addEventListener("click", async ev => {
     case "editPer": ui.editing.per = id; render(); window.scrollTo(0, 0); break;
     case "cancelPer": ui.editing.per = null; render(); break;
     case "delPer": conf(async () => { await remove("personal", id); ui.editing.per = null; }); break;
+    case "guardarProp": guardarPropinas(); break;
     case "editPago": ui.editing.pago = id; ui.pagando = null; render(); window.scrollTo(0, 0);
       if (el.dataset.nuevo) { $("#pg_est").value = "Pagado"; document.querySelectorAll(".pgPag").forEach(x => x.hidden = false); $("#pg_desde").value = "__nuevo"; $("#pg_desdeNL").hidden = false; $("#pg_desdeN").focus(); }
       break;
@@ -625,6 +645,7 @@ document.addEventListener("submit", async ev => {
     try { await db.doc("config/general").set({cotizacion: cot, diasAcreditacion: dias || 15}); toast("Ajustes guardados"); } catch (e) { toast("No se pudo guardar"); }
   }
 });
+window.addEventListener("beforeunload", ev => { if (Object.keys(ui.propDraft).length) { ev.preventDefault(); ev.returnValue = ""; } });
 document.addEventListener("change", async ev => {
   const t = ev.target;
   if (t.id === "pg_est") document.querySelectorAll(".pgPag").forEach(x => x.hidden = t.value !== "Pagado" || (x.id === "pg_desdeNL" && $("#pg_desde").value !== "__nuevo"));
@@ -636,12 +657,10 @@ document.addEventListener("change", async ev => {
   else if (t.id === "pgEst") { ui.pagosEstado = t.value; render(); }
   else if (t.id === "semPick" && t.value) { ui.semana = monday(t.value); render(); }
   else if (t.dataset.prop) {
-    const [fecha, turno] = t.dataset.prop.split("|"); const v = numIn(t.value); const id = fecha + "_" + (turno === "Día" ? "dia" : "noche");
-    const cur = propina(fecha, turno);
-    if (v == null && t.value.trim() === "") { if (cur) await remove("propinas", id); return; }
-    if (v == null || v < 0) { toast("Monto no válido"); t.value = cur?.monto ?? ""; return; }
-    if (cur && cur.monto === v) return;
-    if (await save("propinas", id, {fecha, turno, monto: v})) toast("Propina guardada");
+    const [fecha, turno] = t.dataset.prop.split("|"); const k = propKey(fecha, turno); const cur = propina(fecha, turno)?.monto ?? "";
+    if (String(numIn(t.value) ?? t.value.trim()) === String(cur)) delete ui.propDraft[k]; else ui.propDraft[k] = t.value.trim();
+    t.classList.toggle("dirty", k in ui.propDraft);
+    $("#btnProp").textContent = propBtnTxt(); $("#propEstado").textContent = Object.keys(ui.propDraft).length ? "Hay cambios sin guardar" : "Todo guardado";
   } else if (t.dataset.sem) {
     const cur = S.semanasPropina.find(s => s.id === ui.semana) || {};
     await save("semanasPropina", ui.semana, {acreditada: !!cur.acreditada, entregada: !!cur.entregada, [t.dataset.sem]: t.checked});
