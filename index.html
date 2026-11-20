@@ -391,8 +391,9 @@ function vAdelantos() {
     </form>
   </div>
   <div class="card"><h3>Pendientes de entregar</h3>${tbl(pend, a => `<button class="b small" data-act="entregar" data-id="${a.id}" ${roOnly()}>Marcar entregado</button>`, "No hay adelantos pendientes de entregar.")}</div>
-  <div class="card"><h3>Entregados, a descontar</h3>${tbl(sinDesc, a => `<button class="b small" data-act="descontar" data-id="${a.id}" ${roOnly()}>Ya descontado</button>`, "No hay adelantos por descontar.")}</div>
-  ${desc.length ? `<div class="card"><h3>Ya descontados</h3>${tbl(desc, a => `<button class="b small" data-act="nodescontar" data-id="${a.id}" ${roOnly()}>Deshacer</button>`, "")}</div>` : ""}`;
+  <div class="card"><div class="toolbar"><h3 style="margin:0">Entregados, a descontar</h3>${sinDesc.length ? `<button class="b primary small" data-act="descontarTodos" data-n="${sinDesc.length}" ${roOnly()}>Descontar a todos (${sinDesc.length} · ${pesos(sinDesc.reduce((s,a)=>s+(a.monto||0),0))})</button>` : ""}</div>
+    ${sinDesc.length ? `<p class="muted small" style="margin:6px 0 10px">Cuando ya pasaste los sueldos con los adelantos al contador, tocá "Descontar a todos" y pasan todos a "Ya descontados".</p>` : ""}${tbl(sinDesc, a => `<button class="b small" data-act="descontar" data-id="${a.id}" ${roOnly()}>Ya descontado</button>`, "No hay adelantos por descontar.")}</div>
+  ${desc.length ? `<div class="card"><h3>Ya descontados</h3>${tbl(desc.map(a => ({...a, notas: [a.notas, a.descontadoFecha ? "Descontado el " + fmtD(a.descontadoFecha) : ""].filter(Boolean).join(" · ")})), a => `<button class="b small" data-act="nodescontar" data-id="${a.id}" ${roOnly()}>Deshacer</button>`, "")}</div>` : ""}`;
 }
 
 const propKey = (f, t) => f + "|" + t;
@@ -561,8 +562,15 @@ document.addEventListener("click", async ev => {
     case "cancelAdel": ui.editing.adel = null; render(); break;
     case "delAdel": conf(async () => { await remove("adelantos", id); ui.editing.adel = null; }); break;
     case "entregar": if (await patch("adelantos", id, {estado: "Entregado", fecha: today()})) toast("Marcado como entregado hoy"); break;
-    case "descontar": if (await patch("adelantos", id, {descontado: true})) toast("Marcado como descontado"); break;
-    case "nodescontar": await patch("adelantos", id, {descontado: false}); break;
+    case "descontar": if (await patch("adelantos", id, {descontado: true, descontadoFecha: today()})) toast("Marcado como descontado"); break;
+    case "nodescontar": await patch("adelantos", id, {descontado: false, descontadoFecha: null}); break;
+    case "descontarTodos": {
+      if (!el.dataset.confirm) { el.dataset.confirm = "1"; const txt = el.textContent; el.textContent = "¿Seguro? Tocá de nuevo para descontar " + el.dataset.n; setTimeout(() => { if (el.isConnected) { delete el.dataset.confirm; el.textContent = txt; } }, 4000); break; }
+      el.disabled = true;
+      const lst = S.adelantos.filter(a => a.estado === "Entregado" && !a.descontado); let n = 0;
+      for (const a of lst) if (await patch("adelantos", a.id, {descontado: true, descontadoFecha: today()})) n++;
+      toast(n === lst.length ? `Listo, ${n} adelantos descontados` : `Se descontaron ${n} de ${lst.length}, probá de nuevo`); render();
+      break; }
     case "semPrev": ui.semana = addDays(ui.semana, -7); render(); break;
     case "semNext": ui.semana = addDays(ui.semana, 7); render(); break;
     case "verSem": ui.semana = id; render(); window.scrollTo(0, 0); break;
