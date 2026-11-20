@@ -461,7 +461,7 @@ function vPagos() {
   </div>
   <div class="card">
     <div class="toolbar"><h3 style="margin:0">Pagos</h3><select id="pgEst" aria-label="Estado">${[["pendiente","Pendientes"],["pagado","Pagados"],["todos","Todos"]].map(([k,l]) => `<option value="${k}" ${ui.pagosEstado === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
-    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Vence</th><th>Proveedor</th><th class="n">Monto</th><th></th></tr></thead><tbody>${list.map(p => `<tr><td>${p.estado === "Pagado" ? `<span class="pill good">Pagado</span>` : vencPill(p.vencimiento)}</td><td class="click" data-act="editPago" data-id="${p.id}">${esc(p.proveedor)} <span class="muted small">· ${esc(p.tipo || "")}</span><div class="muted small">${esc([p.concepto, p.notas].filter(Boolean).join(" · "))}</div></td><td class="n">${p.monto == null ? '<span class="pill warn">a definir</span>' : money(p.monto, p.moneda)}</td><td class="n">${p.estado !== "Pagado" ? `<button class="b small" data-act="pagar" data-id="${p.id}" ${roOnly()}>Marcar pagado</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay pagos en esta lista.</div>`}
+    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Vence</th><th>Proveedor</th><th class="n">Monto</th><th></th></tr></thead><tbody>${list.map(p => `<tr><td>${p.estado === "Pagado" ? `<span class="pill good">Pagado</span>` : vencPill(p.vencimiento)}</td><td class="click" data-act="editPago" data-id="${p.id}">${esc(p.proveedor)} <span class="muted small">· ${esc(p.tipo || "")}</span><div class="muted small">${esc([p.concepto, p.notas].filter(Boolean).join(" · "))}</div></td><td class="n">${p.monto == null ? '<span class="pill warn">a definir</span>' : money(p.monto, p.moneda)}</td><td class="n">${p.estado !== "Pagado" ? (ui.pagando === p.id ? `<div class="small muted" style="margin-bottom:4px">¿De dónde sale la plata?</div><div class="btns" style="justify-content:flex-end"><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Fondo de dueños">Fondo de dueños</button><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Retiros de caja">Retiros de caja</button><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Otra">Otra (banco)</button><button class="b small" data-act="pagarCancel">Cancelar</button></div>` : `<button class="b small" data-act="pagar" data-id="${p.id}" ${roOnly()} ${p.monto == null ? "disabled title=\"Primero poné el monto\"" : ""}>Marcar pagado</button>`) : (p.pagadoDesde ? `<span class="muted small">${esc(p.pagadoDesde)}</span>` : "")}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay pagos en esta lista.</div>`}
   </div>`;
 }
 
@@ -514,7 +514,16 @@ document.addEventListener("click", async ev => {
     case "editPago": ui.editing.pago = id; render(); window.scrollTo(0, 0); break;
     case "cancelPago": ui.editing.pago = null; render(); break;
     case "delPago": conf(async () => { await remove("pagos", id); ui.editing.pago = null; }); break;
-    case "pagar": if (await patch("pagos", id, {estado: "Pagado", fechaPago: today()})) toast("Marcado como pagado"); break;
+    case "pagar": ui.pagando = id; render(); break;
+    case "pagarCancel": ui.pagando = null; render(); break;
+    case "pagarDesde": {
+      const pg = S.pagos.find(x => x.id === id); if (!pg || pg.monto == null) break;
+      const desde = el.dataset.desde; const usdP = pg.moneda === "US$";
+      let ok = true;
+      if (desde === "Fondo de dueños") ok = await save("movimientos", null, {fecha: today(), turno: new Date().getHours() < 17 ? "Día" : "Noche", tipo: "Egreso", categoria: pg.tipo === "Personal" ? "Jornal" : "Proveedor", concepto: pg.concepto || "Pago", persona: pg.proveedor, monto: pg.monto, moneda: pg.moneda || "$", cotizacion: usdP ? S.cfg.cotizacion : null, formaPago: "Efectivo", estado: "Pagado", notas: "Pago de Pagos y vencimientos", cargadoPor: S.perfil?.nombre || ""});
+      else if (desde === "Retiros de caja") ok = await save("cajaFuerte", null, {fecha: today(), tipo: "Salida", pesos: usdP ? null : pg.monto, dolares: usdP ? pg.monto : null, cotizacion: usdP ? S.cfg.cotizacion : null, motivo: "Pago: " + pg.proveedor + (pg.concepto ? " · " + pg.concepto : "")});
+      if (ok && await patch("pagos", id, {estado: "Pagado", fechaPago: today(), pagadoDesde: desde})) { ui.pagando = null; toast(desde === "Otra" ? "Marcado como pagado" : "Pagado y descontado de " + desde); render(); }
+      break; }
     case "driveOk": if (await patch("pendientesDrive", id, {resuelto: true, resueltoFecha: today()})) toast("Marcado como cargado. Se puede deshacer abajo"); break;
     case "driveUndo": if (await patch("pendientesDrive", id, {resuelto: false})) toast("Volvió a pendientes"); break;
     case "exportJson": exportar("json"); break;
