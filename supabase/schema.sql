@@ -141,3 +141,8 @@ begin
 end $$;
 revoke all on function public.crear_usuario(text,text,text,text) from public, anon;
 grant execute on function public.crear_usuario(text,text,text,text) to authenticated;
+
+-- ---------- permisos de acceso a la API ----------
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+grant execute on function public.mi_rol() to authenticated;

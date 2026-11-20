@@ -693,7 +693,8 @@ let arrancado = false;
 async function arrancar() {
   const {data: {session}} = await sb.auth.getSession();
   if (!session) { pantallaLogin(); return; }
-  const {data: perfil} = await sb.from("perfiles").select("*").eq("id", session.user.id).maybeSingle();
+  const {data: perfil, error: perr} = await sb.from("perfiles").select("*").eq("id", session.user.id).maybeSingle();
+  if (perr) { pantallaLogin("No se pudo leer tu perfil: " + (perr.message || perr.code || "error") + (perr.code ? " (" + perr.code + ")" : "")); return; }
   if (!perfil || !perfil.activo) { await sb.auth.signOut(); pantallaLogin("Tu usuario no está habilitado. Pedile acceso a Facundo."); return; }
   S.perfil = perfil; S.canWrite = perfil.rol !== "lectura";
   $("#btnSalir").hidden = false; $("#quien").textContent = perfil.nombre;
