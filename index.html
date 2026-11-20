@@ -147,13 +147,15 @@ function cajaTotales(desde) {
   let ing = 0, egr = 0;
   S.movimientos.forEach(m => { if (desde && m.fecha < desde) return; if (m.estado === "Pendiente de pago") return; const v = enPesos(m.monto, m.moneda, m.cotizacion); if (m.tipo === "Ingreso") ing += v; else egr += v; });
   let adel = 0;
-  S.adelantos.forEach(a => { if (a.estado !== "Entregado") return; if (desde && a.fecha < desde) return; adel += a.monto || 0; });
+  S.adelantos.forEach(a => { if (a.estado !== "Entregado" || deRetiros(a)) return; if (desde && a.fecha < desde) return; adel += a.monto || 0; });
   return {ing, egr: egr + adel, adel, saldo: ing - egr - adel};
 }
+const deRetiros = a => a.origen === "Retiros de caja";
 const movPend = () => S.movimientos.filter(m => m.estado === "Pendiente de pago");
 function fuerteTotales() {
   let p = 0, u = 0;
   S.cajaFuerte.forEach(x => { const s = x.tipo === "Salida" ? -1 : 1; p += s * (x.pesos || 0); u += s * (x.dolares || 0); });
+  S.adelantos.forEach(a => { if (a.estado === "Entregado" && deRetiros(a)) p -= a.monto || 0; });
   return {pesos: p, usd: u, equiv: p + u * S.cfg.cotizacion};
 }
 const estadoPersona = p => p.baja && p.baja < today() ? "Baja" : (p.alta && p.alta > today() ? "Por entrar" : "Activo");
@@ -252,7 +254,7 @@ function vCaja() {
   const c = cajaTotales();
   const rows = sortBy([
     ...S.movimientos.map(m => ({...m, _k: "mov"})),
-    ...S.adelantos.filter(a => a.estado === "Entregado").map(a => ({id: a.id, fecha: a.fecha, turno: a.turno, tipo: "Egreso", categoria: "Adelanto de sueldo", concepto: "Adelanto", persona: a.empleado, monto: a.monto, moneda: "$", notas: a.notas, _k: "adel"}))
+    ...S.adelantos.filter(a => a.estado === "Entregado" && !deRetiros(a)).map(a => ({id: a.id, fecha: a.fecha, turno: a.turno, tipo: "Egreso", categoria: "Adelanto de sueldo", concepto: "Adelanto", persona: a.empleado, monto: a.monto, moneda: "$", notas: a.notas, _k: "adel"}))
   ], "fecha", -1).filter(m => !ui.movSemana || m.fecha >= ui.movSemana);
   const arq = sortBy(S.arqueos, "fecha", -1);
   const ea = S.arqueos.find(a => a.id === ui.editing.arq) || {};
@@ -306,7 +308,7 @@ function vCaja() {
 function vFuerte() {
   const f = fuerteTotales();
   const e = S.cajaFuerte.find(x => x.id === ui.editing.cf) || {};
-  const rows = sortBy(S.cajaFuerte, "fecha", -1);
+  const rows = sortBy([...S.cajaFuerte, ...S.adelantos.filter(a => a.estado === "Entregado" && deRetiros(a)).map(a => ({id: a.id, fecha: a.fecha, tipo: "Salida", pesos: a.monto, motivo: "Adelanto de sueldo: " + a.empleado, _adel: true}))], "fecha", -1);
   return `
   <div class="grid">
     <div class="card tile"><div class="label">Pesos retirados</div><div class="num">${pesos(f.pesos)}</div><div class="note">Aparte del fondo de dueños</div></div>
@@ -322,7 +324,7 @@ function vFuerte() {
       <label class="fl wide">Motivo<input id="cf_mot" name="motivo" required value="${esc(e.motivo || "")}" placeholder="Retiro de la caja del restorán"></label>
       <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>${e.id ? "Guardar cambios" : "Registrar"}</button>${e.id ? `<button class="b" type="button" data-act="cancelCF">Cancelar</button><button class="b danger" type="button" data-act="delCF" data-id="${e.id}">Borrar</button>` : ""}<span class="muted small">Acá van solo los retiros de la caja del restorán. Lo que te dan los dueños y lo que gastás de esa plata va en Fondo de dueños.</span></div>
     </form>
-    ${rows.length ? `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Fecha</th><th>Motivo</th><th class="n">Pesos</th><th class="n">Dólares</th></tr></thead><tbody>${rows.map(x => `<tr class="click" data-act="editCF" data-id="${x.id}"><td>${fmtD(x.fecha)}</td><td>${esc(x.motivo)} <span class="pill ${x.tipo === "Salida" ? "bad" : "good"}">${esc(x.tipo)}</span></td><td class="n">${x.pesos ? pesos(x.pesos) : "—"}</td><td class="n">${x.dolares ? usd(x.dolares) : "—"}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay retiros todavía.</div>`}
+    ${rows.length ? `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Fecha</th><th>Motivo</th><th class="n">Pesos</th><th class="n">Dólares</th></tr></thead><tbody>${rows.map(x => `<tr class="click" data-act="${x._adel ? "goAdel" : "editCF"}" data-id="${x.id}"><td>${fmtD(x.fecha)}</td><td>${esc(x.motivo)} <span class="pill ${x.tipo === "Salida" ? "bad" : "good"}">${esc(x.tipo)}</span></td><td class="n">${x.pesos ? pesos(x.pesos) : "—"}</td><td class="n">${x.dolares ? usd(x.dolares) : "—"}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay retiros todavía.</div>`}
   </div>`;
 }
 
@@ -345,9 +347,10 @@ function vAdelantos() {
       <label class="fl" id="ad_nuevoL" hidden>Nombre y apellido de la persona nueva<input id="ad_nuevo" name="nuevoNombre"></label>
       <label class="fl">Fecha<input id="ad_fecha" name="fecha" type="date" required value="${esc(e.fecha || today())}"></label>
       <label class="fl">Monto ($)<input id="ad_monto" name="monto" inputmode="decimal" required value="${e.monto ?? ""}"></label>
+      <label class="fl">¿De dónde sale la plata?<select id="ad_origen" name="origen" required>${opts(["Fondo de dueños","Retiros de caja"], e.origen || "Fondo de dueños")}</select></label>
       <label class="fl">Estado<select id="ad_estado" name="estado">${opts(["Entregado","Pendiente de entrega"], e.estado || "Entregado")}</select></label>
       <label class="fl wide">Notas<input id="ad_notas" name="notas" value="${esc(e.notas || "")}"></label>
-      <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>${e.id ? "Guardar cambios" : "Agregar adelanto"}</button>${e.id ? `<button class="b" type="button" data-act="cancelAdel">Cancelar</button><button class="b danger" type="button" data-act="delAdel" data-id="${e.id}">Borrar</button>` : ""}<span class="muted small">Un adelanto entregado sale de la caja y se descuenta completo del sueldo siguiente.</span></div>
+      <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>${e.id ? "Guardar cambios" : "Agregar adelanto"}</button>${e.id ? `<button class="b" type="button" data-act="cancelAdel">Cancelar</button><button class="b danger" type="button" data-act="delAdel" data-id="${e.id}">Borrar</button>` : ""}<span class="muted small">Un adelanto entregado se descuenta del fondo de dueños o de los retiros de caja, según lo que elijas, y se descuenta completo del sueldo siguiente.</span></div>
     </form>
   </div>
   <div class="card"><h3>Pendientes de entregar</h3>${tbl(pend, a => `<button class="b small" data-act="entregar" data-id="${a.id}" ${roOnly()}>Marcar entregado</button>`, "No hay adelantos pendientes de entregar.")}</div>
@@ -546,7 +549,7 @@ document.addEventListener("submit", async ev => {
       d.empleado = ex ? ex.nombre : n;
     }
     const old = S.adelantos.find(a => a.id === ui.editing.adel) || {};
-    const rec = {empleado: d.empleado, fecha: d.fecha, monto, estado: d.estado, descontado: !!old.descontado, notas: d.notas.trim()};
+    const rec = {empleado: d.empleado, fecha: d.fecha, monto, estado: d.estado, origen: d.origen || "Fondo de dueños", descontado: !!old.descontado, notas: d.notas.trim()};
     if (await save("adelantos", ui.editing.adel, rec)) { toast(ui.editing.adel ? "Adelanto actualizado" : "Adelanto agregado"); ui.editing.adel = null; render(); }
   } else if (f.id === "fPer") {
     const rec = {nombre: d.nombre.trim(), sector: d.sector, cargo: d.cargo.trim(), alta: d.alta || null, baja: d.baja || null, sueldoLiquido: numIn(d.sueldoLiquido), sueldoNominal: numIn(d.sueldoNominal), laudo: d.laudo === "Sí", horario: d.horario.trim(), documento: d.documento.trim(), telefono: d.telefono.trim(), contrato: d.contrato, notas: d.notas.trim()};
