@@ -172,3 +172,4 @@ begin
 end $$;
 revoke all on function public.editar_usuario(uuid,text,text,text) from public, anon;
 grant execute on function public.editar_usuario(uuid,text,text,text) to authenticated;
+alter table public.arqueos add column if not exists cuenta text not null default 'Fondo de dueños', add column if not exists "saldoUsd" numeric, add column if not exists "contadoUsd" numeric;

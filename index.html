@@ -256,8 +256,6 @@ function vCaja() {
     ...S.movimientos.map(m => ({...m, _k: "mov"})),
     ...S.adelantos.filter(a => a.estado === "Entregado" && !deRetiros(a)).map(a => ({id: a.id, fecha: a.fecha, turno: a.turno, tipo: "Egreso", categoria: "Adelanto de sueldo", concepto: "Adelanto", persona: a.empleado, monto: a.monto, moneda: "$", notas: a.notas, _k: "adel"}))
   ], "fecha", -1).filter(m => !ui.movSemana || m.fecha >= ui.movSemana);
-  const arq = sortBy(S.arqueos, "fecha", -1);
-  const ea = S.arqueos.find(a => a.id === ui.editing.arq) || {};
   return `
   <div class="grid">
     <div class="card tile"><div class="label">Quedan del fondo</div><div class="num">${pesos(c.saldo)}</div><div class="note">Plata que te dieron los dueños, guardada en la caja fuerte</div></div>
@@ -290,18 +288,32 @@ function vCaja() {
     ${rows.map(m => `<tr class="click" data-act="${m._k === "mov" ? "editMov" : "goAdel"}" data-id="${m.id}"><td>${fmtD(m.fecha)}${m.turno ? `<div class="muted small">${esc(m.turno)}</div>` : ""}</td><td>${esc(m.persona || "")}<div class="muted small">${esc([m.concepto, m.notas].filter(Boolean).join(" · "))}</div></td><td><span class="pill ${m.tipo === "Ingreso" ? "good" : "mute"}">${esc(m.categoria)}</span>${m.estado === "Pendiente de pago" ? ` <span class="pill warn">Pendiente de pago</span>` : ""}</td><td class="n ${m.tipo === "Ingreso" ? "pos" : ""}">${m.tipo === "Ingreso" ? "+" : "−"} ${money(m.monto, m.moneda)}${m.estado === "Pendiente de pago" ? `<div style="margin-top:4px"><button class="b small" data-act="pagarMov" data-id="${m.id}" ${roOnly()}>Marcar pagado</button></div>` : ""}</td></tr>`).join("")}
     </tbody></table></div>` : `<div class="empty">No hay movimientos en este período. Cargá el primero con el formulario de arriba.</div>`}
   </div>
-  <div class="card"><h3>${ea.id ? "Editar arqueo" : "Arqueo y cierre de turno"}</h3>
+  ${arqueoCard("Fondo de dueños", c.saldo, null)}`;
+}
+
+
+const cuentaArq = a => a.cuenta || "Fondo de dueños";
+function arqueoCard(cuenta, saldo, usdSaldo) {
+  const arq = sortBy(S.arqueos.filter(a => cuentaArq(a) === cuenta), "fecha", -1);
+  const ea0 = S.arqueos.find(a => a.id === ui.editing.arq);
+  const ea = ea0 && cuentaArq(ea0) === cuenta ? ea0 : {};
+  const conUsd = usdSaldo != null;
+  const dif = (a, k1, k2) => (a[k1] || 0) - (a[k2] || 0);
+  const pill = (d, fmt) => `<span class="pill ${d === 0 ? "good" : Math.abs(d) < 500 ? "warn" : "bad"}">${d > 0 ? "+" : ""}${fmt(d)}</span>`;
+  return `<div class="card"><h3>${ea.id ? "Editar arqueo" : "Arqueo"}</h3>
+    <p class="muted small" style="margin:0 0 10px">Contá la plata de ${cuenta === "Fondo de dueños" ? "los dueños" : "los retiros de caja"} que hay en la caja fuerte y anotala acá.</p>
     <form class="f" id="fArq">
+      <input type="hidden" name="cuenta" value="${esc(cuenta)}">
       <label class="fl">Fecha<input id="a_fecha" name="fecha" type="date" required value="${esc(ea.fecha || today())}"></label>
-      <label class="fl">Turno<select id="a_turno" name="turno">${opts(["Día","Noche"], ea.turno || "Día")}</select></label>
-      <label class="fl">Responsable<input id="a_resp" name="responsable" list="dlPersonas" value="${esc(ea.responsable || "")}"></label>
-      <label class="fl">Saldo según la app<input id="a_sis" name="saldoSistema" inputmode="decimal" value="${ea.saldoSistema ?? Math.round(c.saldo)}"></label>
-      <label class="fl">Efectivo contado<input id="a_cont" name="contado" inputmode="decimal" required value="${ea.contado ?? ""}"></label>
-      <label class="fl">Cierres de lote POS<input id="a_lotes" name="lotes" inputmode="decimal" value="${ea.lotes ?? ""}"></label>
+      <label class="fl">Responsable<input id="a_resp" name="responsable" list="dlPersonas" value="${esc(ea.responsable ?? S.perfil?.nombre ?? "")}"></label>
+      <label class="fl">Saldo según la app${conUsd ? " ($)" : ""}<input id="a_sis" name="saldoSistema" inputmode="decimal" value="${ea.saldoSistema ?? Math.round(saldo)}"></label>
+      <label class="fl">Efectivo contado${conUsd ? " ($)" : ""}<input id="a_cont" name="contado" inputmode="decimal" required value="${ea.contado ?? ""}"></label>
+      ${conUsd ? `<label class="fl">Saldo según la app (US$)<input id="a_sisu" name="saldoUsd" inputmode="decimal" value="${ea.saldoUsd ?? usdSaldo}"></label>
+      <label class="fl">Dólares contados (US$)<input id="a_contu" name="contadoUsd" inputmode="decimal" value="${ea.contadoUsd ?? ""}"></label>` : ""}
       <label class="fl wide">Comentario<input id="a_com" name="comentario" value="${esc(ea.comentario || "")}"></label>
       <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>${ea.id ? "Guardar arqueo" : "Registrar arqueo"}</button>${ea.id ? `<button class="b" type="button" data-act="cancelArq">Cancelar</button><button class="b danger" type="button" data-act="delArq" data-id="${ea.id}">Borrar</button>` : ""}</div>
     </form>
-    ${arq.length ? `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Fecha</th><th>Responsable</th><th class="n">Según app</th><th class="n">Contado</th><th class="n">Diferencia</th></tr></thead><tbody>${arq.map(a => { const d = (a.contado || 0) - (a.saldoSistema || 0); return `<tr class="click" data-act="editArq" data-id="${a.id}"><td>${fmtD(a.fecha)}<div class="muted small">${esc(a.turno)}</div></td><td>${esc(a.responsable || "—")}<div class="muted small">${esc(a.comentario || "")}</div></td><td class="n">${pesos(a.saldoSistema)}</td><td class="n">${pesos(a.contado)}</td><td class="n"><span class="pill ${d === 0 ? "good" : Math.abs(d) < 500 ? "warn" : "bad"}">${d > 0 ? "+" : ""}${pesos(d)}</span></td></tr>`; }).join("")}</tbody></table></div>` : `<div class="empty">Todavía no hay arqueos. Al cerrar cada turno, contá el efectivo y registralo acá.</div>`}
+    ${arq.length ? `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Fecha</th><th>Responsable</th><th class="n">Según app</th><th class="n">Contado</th><th class="n">Diferencia</th></tr></thead><tbody>${arq.map(a => `<tr class="click" data-act="editArq" data-id="${a.id}"><td>${fmtD(a.fecha)}</td><td>${esc(a.responsable || "—")}<div class="muted small">${esc(a.comentario || "")}</div></td><td class="n">${pesos(a.saldoSistema)}${a.contadoUsd != null ? `<div class="muted small">${usd(a.saldoUsd)}</div>` : ""}</td><td class="n">${pesos(a.contado)}${a.contadoUsd != null ? `<div class="muted small">${usd(a.contadoUsd)}</div>` : ""}</td><td class="n">${pill(dif(a, "contado", "saldoSistema"), pesos)}${a.contadoUsd != null ? `<div style="margin-top:4px">${pill(dif(a, "contadoUsd", "saldoUsd"), usd)}</div>` : ""}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">Todavía no hay arqueos de ${cuenta === "Fondo de dueños" ? "este fondo" : "los retiros"}.</div>`}
   </div>`;
 }
 
@@ -325,7 +337,8 @@ function vFuerte() {
       <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>${e.id ? "Guardar cambios" : "Registrar"}</button>${e.id ? `<button class="b" type="button" data-act="cancelCF">Cancelar</button><button class="b danger" type="button" data-act="delCF" data-id="${e.id}">Borrar</button>` : ""}<span class="muted small">Acá van solo los retiros de la caja del restorán. Lo que te dan los dueños y lo que gastás de esa plata va en Fondo de dueños.</span></div>
     </form>
     ${rows.length ? `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Fecha</th><th>Motivo</th><th class="n">Pesos</th><th class="n">Dólares</th></tr></thead><tbody>${rows.map(x => `<tr class="click" data-act="${x._adel ? "goAdel" : "editCF"}" data-id="${x.id}"><td>${fmtD(x.fecha)}</td><td>${esc(x.motivo)} <span class="pill ${x.tipo === "Salida" ? "bad" : "good"}">${esc(x.tipo)}</span></td><td class="n">${x.pesos ? pesos(x.pesos) : "—"}</td><td class="n">${x.dolares ? usd(x.dolares) : "—"}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay retiros todavía.</div>`}
-  </div>`;
+  </div>
+  ${arqueoCard("Retiros de caja", f.pesos, f.usd)}`;
 }
 
 function vAdelantos() {
@@ -542,7 +555,7 @@ document.addEventListener("submit", async ev => {
     if (await save("movimientos", ui.editing.mov, rec)) { toast(ui.editing.mov ? "Movimiento actualizado" : "Movimiento agregado"); ui.editing.mov = null; render(); }
   } else if (f.id === "fArq") {
     const contado = numIn(d.contado); if (contado == null) { toast("Poné el efectivo contado"); return; }
-    const rec = {fecha: d.fecha, turno: d.turno, responsable: d.responsable.trim(), saldoSistema: numIn(d.saldoSistema), contado, lotes: numIn(d.lotes), comentario: d.comentario.trim()};
+    const rec = {fecha: d.fecha, cuenta: d.cuenta || "Fondo de dueños", responsable: d.responsable.trim(), saldoSistema: numIn(d.saldoSistema), contado, saldoUsd: d.saldoUsd != null ? numIn(d.saldoUsd) : null, contadoUsd: d.contadoUsd != null ? numIn(d.contadoUsd) : null, comentario: d.comentario.trim()};
     if (await save("arqueos", ui.editing.arq, rec)) { toast("Arqueo registrado"); ui.editing.arq = null; render(); }
   } else if (f.id === "fCF") {
     const p = numIn(d.pesos), u = numIn(d.dolares); if (!p && !u) { toast("Poné pesos o dólares"); return; }
