@@ -186,7 +186,9 @@ async function patch(col, id, data) {
   try { await db.collection(col).doc(id).update({...data, actualizado: new Date().toISOString()}); return true; }
   catch (e) { toast("No se pudo guardar, probá de nuevo"); return false; }
 }
-const DESDES = ["Fondo de dueños", "Retiros de caja", "Pagó Bibi", "Otra"];
+const DESDES0 = ["Fondo de dueños", "Retiros de caja", "Pagó Bibi", "Otra"];
+const desdes = () => [...DESDES0.slice(0, 3), ...[...new Set(S.pagos.map(p => p.pagadoDesde).filter(x => x && !DESDES0.includes(x)))].sort(), "Otra"];
+const desdeLbl = x => x === "Otra" ? "Otra (banco)" : x;
 async function registrarSalida(pg, desde, fecha) {
   const usdP = pg.moneda === "US$";
   if (desde === "Fondo de dueños") return save("movimientos", null, {fecha, turno: new Date().getHours() < 17 ? "Día" : "Noche", tipo: "Egreso", categoria: pg.tipo === "Personal" ? "Jornal" : "Proveedor", concepto: pg.concepto || "Pago", persona: pg.proveedor, monto: pg.monto, moneda: pg.moneda || "$", cotizacion: usdP ? S.cfg.cotizacion : null, formaPago: "Efectivo", estado: "Pagado", notas: "Pago de Pagos y vencimientos", cargadoPor: S.perfil?.nombre || "", pagoId: pg.id});
@@ -480,7 +482,7 @@ function vPagos() {
     <div class="card tile"><div class="label">Vencidos</div><div class="num ${venc.length ? "neg" : ""}">${venc.length}</div><div class="note">${pend.filter(p => p.monto == null).length} sin monto definido</div></div>
   </div>
   <div class="card"><h3>${e.id ? (e.estado === "Pagado" ? "Detalle del pago" : "Editar pago") : "Nuevo pago o vencimiento"}</h3>
-    ${e.estado === "Pagado" ? `<p class="muted small" style="margin:0 0 10px">Pagado el ${fmtD(e.fechaPago)} · ${esc(e.pagadoDesde === "Otra" ? "Otra (banco)" : e.pagadoDesde || "sin dato de dónde salió")}. Si cambiás el monto, la fecha o de dónde salió la plata, la app corrige el descuento solo.</p>` : ""}
+    ${e.estado === "Pagado" ? `<p class="muted small" style="margin:0 0 10px">Pagado el ${fmtD(e.fechaPago)} · ${esc(e.pagadoDesde ? desdeLbl(e.pagadoDesde) : "sin dato de dónde salió")}. Si cambiás el monto, la fecha o de dónde salió la plata, la app corrige el descuento solo.</p>` : ""}
     <form class="f" id="fPago">
       <label class="fl">Proveedor u organismo<input id="pg_prov" name="proveedor" list="dlProv" required value="${esc(e.proveedor || "")}"></label>
       <datalist id="dlProv">${[...new Set(S.pagos.map(p => p.proveedor).filter(Boolean))].sort().map(n => `<option value="${esc(n)}">`).join("")}</datalist>
@@ -491,14 +493,15 @@ function vPagos() {
       <label class="fl">Vencimiento<input id="pg_venc" name="vencimiento" type="date" value="${esc(e.vencimiento || "")}"></label>
       <label class="fl">Estado<select id="pg_est" name="estado">${opts(["Pendiente","Pagado"], e.estado || "Pendiente")}</select></label>
       <label class="fl pgPag" ${e.estado === "Pagado" ? "" : "hidden"}>Fecha de pago<input id="pg_fpag" name="fechaPago" type="date" value="${esc(e.fechaPago || today())}"></label>
-      <label class="fl pgPag" ${e.estado === "Pagado" ? "" : "hidden"}>¿De dónde salió la plata?<select id="pg_desde" name="pagadoDesde">${DESDES.map(x => `<option value="${esc(x)}" ${(e.pagadoDesde || "Fondo de dueños") === x ? "selected" : ""}>${x === "Otra" ? "Otra (banco)" : x}</option>`).join("")}</select></label>
+      <label class="fl pgPag" ${e.estado === "Pagado" ? "" : "hidden"}>¿De dónde salió la plata?<select id="pg_desde" name="pagadoDesde">${desdes().map(x => `<option value="${esc(x)}" ${(e.pagadoDesde || "Fondo de dueños") === x ? "selected" : ""}>${esc(desdeLbl(x))}</option>`).join("")}<option value="__nuevo">+ Agregar otra forma de pago…</option></select></label>
+      <label class="fl pgPag" id="pg_desdeNL" hidden>Nombre de la nueva forma de pago<input id="pg_desdeN" name="desdeNuevo" placeholder="Ej.: Pagó Fernando"></label>
       <label class="fl wide">Notas<input id="pg_not" name="notas" value="${esc(e.notas || "")}"></label>
       <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>${e.id ? "Guardar cambios" : "Agregar"}</button>${e.id ? `<button class="b" type="button" data-act="cancelPago">Cancelar</button><button class="b danger" type="button" data-act="delPago" data-id="${e.id}">Borrar</button>` : ""}</div>
     </form>
   </div>
   <div class="card">
     <div class="toolbar"><h3 style="margin:0">Pagos</h3><select id="pgEst" aria-label="Estado">${[["pendiente","Pendientes"],["pagado","Pagados"],["todos","Todos"]].map(([k,l]) => `<option value="${k}" ${ui.pagosEstado === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
-    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Vence</th><th>Proveedor</th><th class="n">Monto</th><th></th></tr></thead><tbody>${list.map(p => `<tr class="click" data-act="editPago" data-id="${p.id}"><td>${p.estado === "Pagado" ? `<span class="pill good">Pagado</span>` : vencPill(p.vencimiento)}</td><td>${esc(p.proveedor)} <span class="muted small">· ${esc(p.tipo || "")}</span><div class="muted small">${esc([p.concepto, p.notas].filter(Boolean).join(" · "))}</div></td><td class="n">${p.monto == null ? '<span class="pill warn">a definir</span>' : money(p.monto, p.moneda)}</td><td class="n">${p.estado !== "Pagado" ? (ui.pagando === p.id ? `<div class="small muted" style="margin-bottom:4px">¿De dónde sale la plata?</div><div class="btns" style="justify-content:flex-end"><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Fondo de dueños">Fondo de dueños</button><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Retiros de caja">Retiros de caja</button><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Pagó Bibi">Pagó Bibi</button><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Otra">Otra (banco)</button><button class="b small" data-act="pagarCancel">Cancelar</button></div>` : `<button class="b small" data-act="pagar" data-id="${p.id}" ${roOnly()} ${p.monto == null ? "disabled title=\"Primero poné el monto\"" : ""}>Marcar pagado</button>`) : `<span class="muted small">${esc(p.pagadoDesde === "Otra" ? "Otra (banco)" : p.pagadoDesde || "")}${p.fechaPago ? "<br>" + fmtD(p.fechaPago) : ""}</span><div><button class="b small" type="button" data-act="editPago" data-id="${p.id}">Ver / editar</button></div>`}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay pagos en esta lista.</div>`}
+    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Vence</th><th>Proveedor</th><th class="n">Monto</th><th></th></tr></thead><tbody>${list.map(p => `<tr class="click" data-act="editPago" data-id="${p.id}"><td>${p.estado === "Pagado" ? `<span class="pill good">Pagado</span>` : vencPill(p.vencimiento)}</td><td>${esc(p.proveedor)} <span class="muted small">· ${esc(p.tipo || "")}</span><div class="muted small">${esc([p.concepto, p.notas].filter(Boolean).join(" · "))}</div></td><td class="n">${p.monto == null ? '<span class="pill warn">a definir</span>' : money(p.monto, p.moneda)}</td><td class="n">${p.estado !== "Pagado" ? (ui.pagando === p.id ? `<div class="small muted" style="margin-bottom:4px">¿De dónde sale la plata?</div><div class="btns" style="justify-content:flex-end"><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Fondo de dueños">Fondo de dueños</button><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Retiros de caja">Retiros de caja</button>${desdes().slice(2).map(x => `<button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="${esc(x)}">${esc(desdeLbl(x))}</button>`).join("")}<button class="b small" data-act="editPago" data-id="${p.id}" data-nuevo="1">+ Otra forma…</button><button class="b small" data-act="pagarCancel">Cancelar</button></div>` : `<button class="b small" data-act="pagar" data-id="${p.id}" ${roOnly()} ${p.monto == null ? "disabled title=\"Primero poné el monto\"" : ""}>Marcar pagado</button>`) : `<span class="muted small">${esc(p.pagadoDesde ? desdeLbl(p.pagadoDesde) : "")}${p.fechaPago ? "<br>" + fmtD(p.fechaPago) : ""}</span><div><button class="b small" type="button" data-act="editPago" data-id="${p.id}">Ver / editar</button></div>`}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay pagos en esta lista.</div>`}
   </div>`;
 }
 
@@ -548,7 +551,9 @@ document.addEventListener("click", async ev => {
     case "editPer": ui.editing.per = id; render(); window.scrollTo(0, 0); break;
     case "cancelPer": ui.editing.per = null; render(); break;
     case "delPer": conf(async () => { await remove("personal", id); ui.editing.per = null; }); break;
-    case "editPago": ui.editing.pago = id; render(); window.scrollTo(0, 0); break;
+    case "editPago": ui.editing.pago = id; ui.pagando = null; render(); window.scrollTo(0, 0);
+      if (el.dataset.nuevo) { $("#pg_est").value = "Pagado"; document.querySelectorAll(".pgPag").forEach(x => x.hidden = false); $("#pg_desde").value = "__nuevo"; $("#pg_desdeNL").hidden = false; $("#pg_desdeN").focus(); }
+      break;
     case "cancelPago": ui.editing.pago = null; render(); break;
     case "delPago": conf(async () => { await quitarSalidas(id); await remove("pagos", id); ui.editing.pago = null; }); break;
     case "pagar": ui.pagando = id; render(); break;
@@ -557,7 +562,7 @@ document.addEventListener("click", async ev => {
       const pg = S.pagos.find(x => x.id === id); if (!pg || pg.monto == null) break;
       const desde = el.dataset.desde;
       const ok = await registrarSalida(pg, desde, today());
-      if (ok && await patch("pagos", id, {estado: "Pagado", fechaPago: today(), pagadoDesde: desde})) { ui.pagando = null; toast(desde === "Otra" || desde === "Pagó Bibi" ? "Marcado como pagado (" + desde + ")" : "Pagado y descontado de " + desde); render(); }
+      if (ok && await patch("pagos", id, {estado: "Pagado", fechaPago: today(), pagadoDesde: desde})) { ui.pagando = null; toast(desde === "Fondo de dueños" || desde === "Retiros de caja" ? "Pagado y descontado de " + desde : "Marcado como pagado (" + desdeLbl(desde) + ")"); render(); }
       break; }
     case "driveOk": if (await patch("pendientesDrive", id, {resuelto: true, resueltoFecha: today()})) toast("Marcado como cargado. Se puede deshacer abajo"); break;
     case "driveUndo": if (await patch("pendientesDrive", id, {resuelto: false})) toast("Volvió a pendientes"); break;
@@ -603,6 +608,7 @@ document.addEventListener("submit", async ev => {
   } else if (f.id === "fPago") {
     if (d.proveedor.trim() && !conocidos().has(norm(d.proveedor))) await marcarNuevo("Proveedor", d.proveedor.trim(), "Pagos");
     const pagado = d.estado === "Pagado";
+    if (pagado && d.pagadoDesde === "__nuevo") { d.pagadoDesde = (d.desdeNuevo || "").trim(); if (!d.pagadoDesde) { toast("Escribí el nombre de la forma de pago"); return; } }
     const rec = {proveedor: d.proveedor.trim(), tipo: d.tipo, concepto: d.concepto.trim(), monto: numIn(d.monto), moneda: d.moneda, vencimiento: d.vencimiento || null, estado: d.estado, notas: d.notas.trim(), fechaPago: pagado ? (d.fechaPago || today()) : null, pagadoDesde: pagado ? d.pagadoDesde : null};
     if (pagado && rec.monto == null) { toast("Poné el monto para marcarlo pagado"); return; }
     const old = S.pagos.find(x => x.id === ui.editing.pago);
@@ -621,7 +627,8 @@ document.addEventListener("submit", async ev => {
 });
 document.addEventListener("change", async ev => {
   const t = ev.target;
-  if (t.id === "pg_est") document.querySelectorAll(".pgPag").forEach(x => x.hidden = t.value !== "Pagado");
+  if (t.id === "pg_est") document.querySelectorAll(".pgPag").forEach(x => x.hidden = t.value !== "Pagado" || (x.id === "pg_desdeNL" && $("#pg_desde").value !== "__nuevo"));
+  else if (t.id === "pg_desde") { $("#pg_desdeNL").hidden = t.value !== "__nuevo"; if (t.value === "__nuevo") $("#pg_desdeN").focus(); }
   else if (t.id === "ad_emp") { $("#ad_nuevoL").hidden = t.value !== "__nuevo"; if (t.value === "__nuevo") $("#ad_nuevo").focus(); }
   else if (t.id === "m_cat") { $("#m_catNuevaL").hidden = t.value !== "__nuevo"; if (t.value === "__nuevo") $("#m_catNueva").focus(); }
   else if (t.id === "movSemana") { ui.movSemana = t.value; render(); }
