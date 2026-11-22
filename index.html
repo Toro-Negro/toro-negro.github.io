@@ -133,7 +133,7 @@ let toastT;
 const toast = msg => { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2200); };
 
 /* ---------- estado ---------- */
-const COLS = ["personal","movimientos","adelantos","cajaFuerte","arqueos","propinas","semanasPropina","pagos","pendientesDrive"];
+const COLS = ["personal","personalPrivado","movimientos","adelantos","cajaFuerte","arqueos","propinas","semanasPropina","pagos","pendientesDrive"];
 const S = {cfg: {cotizacion: 41, diasAcreditacion: 15}, ready: {}, canWrite: true};
 COLS.forEach(c => S[c] = []);
 let db = null, dl = true;
@@ -220,7 +220,8 @@ const catsAll = () => [...new Set([...CATS, ...S.movimientos.map(m => m.categori
 /* ---------- render ---------- */
 function renderTabs() {
   if (!S.perfil) { $("#tabs").innerHTML = ""; return; }
-  $("#tabs").innerHTML = TABS.filter(([k]) => k !== "usuarios" || S.perfil.rol === "admin").map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${k === tab}">${l}</button>`).join("");
+  if (niv(tab) < 1) { const f = TABS.find(([k]) => niv(k) >= 1); if (f) tab = f[0]; }
+  $("#tabs").innerHTML = TABS.filter(([k]) => niv(k) >= 1).map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${k === tab}">${l}</button>`).join("");
 }
 function render() {
   renderTabs();
@@ -233,7 +234,43 @@ function render() {
 const empleadosOpts = (sel, soloActivos = true) => sortBy(S.personal, "nombre").filter(p => !soloActivos || estadoPersona(p) !== "Baja" || p.nombre === sel).map(p => `<option ${p.nombre === sel ? "selected" : ""}>${esc(p.nombre)}</option>`).join("");
 const opts = (list, sel) => list.map(o => `<option ${o === sel ? "selected" : ""}>${esc(o)}</option>`).join("");
 const CATS = ["Aporte de socio","Venta","Jornal","Sueldo","Proveedor","Compra","Otro"];
-const roOnly = () => S.canWrite ? "" : "disabled";
+const NIV = {no: 0, ver: 1, cargar: 2, editar: 3};
+const SECS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retiros de caja"],["adelantos","Adelantos"],["propinas","Propinas"],["personal","Personal"],["pagos","Pagos y vencimientos"]];
+const PRIV = [["sueldos","Sueldos"],["documentos","Documento y teléfono"],["cuentas","Cuenta bancaria"]];
+function nivelDe(perfil, sec) {
+  if (!perfil) return 0;
+  if (perfil.rol === "admin") return 3;
+  if (sec === "ajustes" || sec === "usuarios") return 0;
+  const secs = perfil.permisos?.secciones;
+  if (secs && typeof secs === "object") return NIV[secs[sec]] ?? 0;
+  return perfil.rol === "carga" ? 3 : perfil.rol === "lectura" ? 1 : 0;
+}
+const niv = sec => nivelDe(S.perfil, sec);
+const privDe = (perfil, g) => perfil?.rol === "admin" || !!perfil?.permisos?.privado?.[g];
+const priv = g => privDe(S.perfil, g);
+const roOnly = (need = 2) => niv(tab) >= need ? "" : "disabled";
+const adminOnly = () => S.perfil?.rol === "admin" ? "" : "disabled";
+const PRIV_CAMPOS = {sueldoLiquido: "sueldos", sueldoNominal: "sueldos", documento: "documentos", telefono: "documentos", cuenta: "cuentas"};
+function mergePriv() {
+  const m = {}; (S.personalPrivado || []).forEach(r => { (m[r.persona] ||= {})[r.campo] = r.valor; });
+  S.personal.forEach(p => { const x = m[p.id] || {};
+    p.sueldoLiquido = x.sueldoLiquido != null && x.sueldoLiquido !== "" ? Number(x.sueldoLiquido) : null;
+    p.sueldoNominal = x.sueldoNominal != null && x.sueldoNominal !== "" ? Number(x.sueldoNominal) : null;
+    p.documento = x.documento || ""; p.telefono = x.telefono || ""; p.cuenta = x.cuenta || ""; });
+}
+async function guardarPriv(pid, d, old) {
+  for (const campo of Object.keys(PRIV_CAMPOS)) {
+    if (!priv(PRIV_CAMPOS[campo]) || !(campo in d)) continue;
+    const v = String(d[campo] ?? "").trim(), ov = String(old?.[campo] ?? "").trim();
+    if (v === ov) continue;
+    const id = pid + "|" + campo;
+    try {
+      if (v === "") await db.collection("personalPrivado").doc(id).delete();
+      else await db.collection("personalPrivado").doc(id).set({persona: pid, campo, valor: v, actualizado: new Date().toISOString()});
+    } catch (e) { toast("No se pudo guardar " + campo); return false; }
+  }
+  return true;
+}
 
 function vResumen() {
   const c = cajaTotales(), f = fuerteTotales(), sem = cajaTotales(monday(today()));
@@ -247,23 +284,23 @@ function vResumen() {
   const ps = semanaPropina(monday(today()));
   return `
   <div class="grid">
-    <div class="card tile"><div class="label">Fondo de dueños</div><div class="num">${pesos(c.saldo)}</div><div class="note">Quedan de ${pesos(c.ing)} recibidos · gastado ${pesos(c.egr)}${c.ajuste ? " · ajuste por arqueo " + pesos(c.ajuste) : ""}${movPend().length ? " · " + pesos(movPend().reduce((t, m) => t + enPesos(m.monto, m.moneda, m.cotizacion), 0)) + " por pagar" : ""}</div></div>
-    <div class="card tile"><div class="label">Retiros de caja</div><div class="num">${pesos(f.pesos)}</div><div class="note">y ${usd(f.usd)} · total ${pesos(f.equiv)} a $${nf0.format(S.cfg.cotizacion)}</div></div>
-    <div class="card tile"><div class="label">Adelantos a descontar</div><div class="num">${pesos(adel)}</div><div class="note">${pendEnt.length ? pendEnt.length + " sin entregar (" + pesos(pendEnt.reduce((s,a)=>s+(a.monto||0),0)) + ")" : "Todos entregados"}</div></div>
-    <div class="card tile"><div class="label">Deuda pendiente</div><div class="num">${pesos(deudaP)}</div><div class="note">y ${usd(deudaU)} · ${pend.length} pagos</div></div>
+    ${niv("caja") ? `<div class="card tile"><div class="label">Fondo de dueños</div><div class="num">${pesos(c.saldo)}</div><div class="note">Quedan de ${pesos(c.ing)} recibidos · gastado ${pesos(c.egr)}${c.ajuste ? " · ajuste por arqueo " + pesos(c.ajuste) : ""}${movPend().length ? " · " + pesos(movPend().reduce((t, m) => t + enPesos(m.monto, m.moneda, m.cotizacion), 0)) + " por pagar" : ""}</div></div>` : ""}
+    ${niv("fuerte") ? `<div class="card tile"><div class="label">Retiros de caja</div><div class="num">${pesos(f.pesos)}</div><div class="note">y ${usd(f.usd)} · total ${pesos(f.equiv)} a $${nf0.format(S.cfg.cotizacion)}</div></div>` : ""}
+    ${niv("adelantos") ? `<div class="card tile"><div class="label">Adelantos a descontar</div><div class="num">${pesos(adel)}</div><div class="note">${pendEnt.length ? pendEnt.length + " sin entregar (" + pesos(pendEnt.reduce((s,a)=>s+(a.monto||0),0)) + ")" : "Todos entregados"}</div></div>` : ""}
+    ${niv("pagos") ? `<div class="card tile"><div class="label">Deuda pendiente</div><div class="num">${pesos(deudaP)}</div><div class="note">y ${usd(deudaU)} · ${pend.length} pagos</div></div>` : ""}
   </div>
   <div class="row2">
-    <div class="card"><h3>Vencimientos hasta el ${fmtD(lim)}</h3>${venc.length ? `<div class="tbl-wrap"><table><thead><tr><th>Vence</th><th>Concepto</th><th class="n">Monto</th></tr></thead><tbody>${venc.map(p => `<tr><td>${vencPill(p.vencimiento)}</td><td>${esc(p.proveedor)}<div class="muted small">${esc(p.concepto || "")}</div></td><td class="n">${p.monto == null ? "a definir" : money(p.monto, p.moneda)}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">Nada vence en los próximos 7 días.</div>`}</div>
+    ${niv("pagos") ? `<div class="card"><h3>Vencimientos hasta el ${fmtD(lim)}</h3>${venc.length ? `<div class="tbl-wrap"><table><thead><tr><th>Vence</th><th>Concepto</th><th class="n">Monto</th></tr></thead><tbody>${venc.map(p => `<tr><td>${vencPill(p.vencimiento)}</td><td>${esc(p.proveedor)}<div class="muted small">${esc(p.concepto || "")}</div></td><td class="n">${p.monto == null ? "a definir" : money(p.monto, p.moneda)}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">Nada vence en los próximos 7 días.</div>`}</div>` : ""}
     <div class="card"><h3>Esta semana</h3><dl class="kv">
-      <dt>Gastos de caja desde el lunes ${fmtD(monday(today()))}</dt><dd>${pesos(sem.egr)}</dd>
-      <dt>Propina con tarjeta</dt><dd>${pesos(ps.total)}</dd>
-      <dt>Se entrega al jefe de cocina</dt><dd>${fmtD(ps.entrega)}</dd>
-      <dt>Personal activo</dt><dd>${S.personal.filter(p => estadoPersona(p) === "Activo").length}</dd>
+      ${niv("caja") ? `<dt>Gastos de caja desde el lunes ${fmtD(monday(today()))}</dt><dd>${pesos(sem.egr)}</dd>` : ""}
+      ${niv("propinas") ? `<dt>Propina con tarjeta</dt><dd>${pesos(ps.total)}</dd>
+      <dt>Se entrega al jefe de cocina</dt><dd>${fmtD(ps.entrega)}</dd>` : ""}
+      ${niv("personal") ? `<dt>Personal activo</dt><dd>${S.personal.filter(p => estadoPersona(p) === "Activo").length}</dd>` : ""}
     </dl></div>
   </div>
-  ${(() => { const nv = sortBy(S.pendientesDrive.filter(x => !x.resuelto), "fecha", -1); const ok = sortBy(S.pendientesDrive.filter(x => x.resuelto && (x.resueltoFecha || x.fecha) >= addDays(today(), -14)), "fecha", -1); if (!nv.length && !ok.length) return "";
+  ${S.perfil?.rol !== "admin" ? "" : (() => { const nv = sortBy(S.pendientesDrive.filter(x => !x.resuelto), "fecha", -1); const ok = sortBy(S.pendientesDrive.filter(x => x.resuelto && (x.resueltoFecha || x.fecha) >= addDays(today(), -14)), "fecha", -1); if (!nv.length && !ok.length) return "";
     const tbl = (list, btn) => `<div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Tipo</th><th>Desde</th><th></th></tr></thead><tbody>${list.map(x => `<tr><td>${esc(x.nombre)}</td><td>${esc(x.tipo)}</td><td>${esc(x.desde)} · ${fmtD(x.fecha)}</td><td class="n">${btn(x)}</td></tr>`).join("")}</tbody></table></div>`;
-    return `<div class="card"><h3>Nuevos para pasar a Drive</h3>${nv.length ? `<p class="muted small" style="margin:0 0 8px">Cargaste esto en la app y no estaba en las planillas. Avisale a Claude en el chat y te pregunta dónde va cada uno.</p>${tbl(nv, x => `<button class="b small" data-act="driveOk" data-id="${x.id}" ${roOnly()}>Ya está en Drive</button>`)}` : `<div class="empty">No hay nada pendiente de pasar a Drive.</div>`}${ok.length ? `<details style="margin-top:10px"><summary class="small muted" style="cursor:pointer">Ya marcados como cargados (${ok.length}) · deshacer</summary>${tbl(ok, x => `<button class="b small" data-act="driveUndo" data-id="${x.id}" ${roOnly()}>Volver a pendientes</button>`)}</details>` : ""}</div>`; })()}`;
+    return `<div class="card"><h3>Nuevos para pasar a Drive</h3>${nv.length ? `<p class="muted small" style="margin:0 0 8px">Cargaste esto en la app y no estaba en las planillas. Avisale a Claude en el chat y te pregunta dónde va cada uno.</p>${tbl(nv, x => `<button class="b small" data-act="driveOk" data-id="${x.id}" ${adminOnly()}>Ya está en Drive</button>`)}` : `<div class="empty">No hay nada pendiente de pasar a Drive.</div>`}${ok.length ? `<details style="margin-top:10px"><summary class="small muted" style="cursor:pointer">Ya marcados como cargados (${ok.length}) · deshacer</summary>${tbl(ok, x => `<button class="b small" data-act="driveUndo" data-id="${x.id}" ${adminOnly()}>Volver a pendientes</button>`)}</details>` : ""}</div>`; })()}`;
 }
 function vencPill(v) {
   if (!v) return `<span class="pill mute">sin fecha</span>`;
@@ -301,7 +338,7 @@ function vCaja() {
       <label class="fl">Estado<select id="m_estado" name="estado">${opts(["Pagado","Pendiente de pago"], e.estado || "Pagado")}</select></label>
       <label class="fl">Forma de pago<select id="m_fp" name="formaPago">${opts(["Efectivo","Transferencia","Cheque","Tarjeta"], e.formaPago || "Efectivo")}</select></label>
       <label class="fl wide">Notas<input id="m_notas" name="notas" value="${esc(e.notas || "")}"></label>
-      <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>${e.id ? "Guardar cambios" : "Agregar movimiento"}</button>${e.id ? `<button class="b" type="button" data-act="cancelMov">Cancelar</button><button class="b danger" type="button" data-act="delMov" data-id="${e.id}">Borrar</button>` : ""}<span class="muted small">Los adelantos se cargan en la pestaña Adelantos. Si escribís una persona o proveedor que no está en la lista, queda anotado para pasar a Drive.</span></div>
+      <div class="btns wide"><button class="b primary" type="submit" ${roOnly(e.id ? 3 : 2)}>${e.id ? "Guardar cambios" : "Agregar movimiento"}</button>${e.id ? `<button class="b" type="button" data-act="cancelMov">Cancelar</button><button class="b danger" type="button" ${roOnly(3)} data-act="delMov" data-id="${e.id}">Borrar</button>` : ""}<span class="muted small">Los adelantos se cargan en la pestaña Adelantos. Si escribís una persona o proveedor que no está en la lista, queda anotado para pasar a Drive.</span></div>
     </form>
     <datalist id="dlPersonas">${[...new Set([...S.personal.map(p => p.nombre), ...S.pagos.map(p => p.proveedor)].filter(Boolean))].sort().map(n => `<option value="${esc(n)}">`).join("")}</datalist>
   </div>
@@ -309,7 +346,7 @@ function vCaja() {
     <div class="toolbar"><h3 style="margin:0">Movimientos</h3>
       <select id="movSemana" aria-label="Período"><option value="">Todos</option><option value="${monday(today())}" ${ui.movSemana === monday(today()) ? "selected" : ""}>Esta semana</option><option value="${today()}" ${ui.movSemana === today() ? "selected" : ""}>Hoy</option></select></div>
     ${rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Detalle</th><th>Categoría</th><th class="n">Monto</th></tr></thead><tbody>
-    ${rows.map(m => `<tr class="click" data-act="${m._k === "mov" ? "editMov" : "goAdel"}" data-id="${m.id}"><td>${fmtD(m.fecha)}${m.turno ? `<div class="muted small">${esc(m.turno)}</div>` : ""}</td><td>${esc(m.persona || "")}<div class="muted small">${esc([m.concepto, m.notas].filter(Boolean).join(" · "))}</div></td><td><span class="pill ${m.tipo === "Ingreso" ? "good" : "mute"}">${esc(m.categoria)}</span>${m.estado === "Pendiente de pago" ? ` <span class="pill warn">Pendiente de pago</span>` : ""}</td><td class="n ${m.tipo === "Ingreso" ? "pos" : ""}">${m.tipo === "Ingreso" ? "+" : "−"} ${money(m.monto, m.moneda)}${m.estado === "Pendiente de pago" ? `<div style="margin-top:4px"><button class="b small" data-act="pagarMov" data-id="${m.id}" ${roOnly()}>Marcar pagado</button></div>` : ""}</td></tr>`).join("")}
+    ${rows.map(m => `<tr class="click" data-act="${m._k === "mov" ? "editMov" : "goAdel"}" data-id="${m.id}"><td>${fmtD(m.fecha)}${m.turno ? `<div class="muted small">${esc(m.turno)}</div>` : ""}</td><td>${esc(m.persona || "")}<div class="muted small">${esc([m.concepto, m.notas].filter(Boolean).join(" · "))}</div></td><td><span class="pill ${m.tipo === "Ingreso" ? "good" : "mute"}">${esc(m.categoria)}</span>${m.estado === "Pendiente de pago" ? ` <span class="pill warn">Pendiente de pago</span>` : ""}</td><td class="n ${m.tipo === "Ingreso" ? "pos" : ""}">${m.tipo === "Ingreso" ? "+" : "−"} ${money(m.monto, m.moneda)}${m.estado === "Pendiente de pago" ? `<div style="margin-top:4px"><button class="b small" data-act="pagarMov" data-id="${m.id}" ${roOnly(3)}>Marcar pagado</button></div>` : ""}</td></tr>`).join("")}
     </tbody></table></div>` : `<div class="empty">No hay movimientos en este período. Cargá el primero con el formulario de arriba.</div>`}
   </div>
   ${arqueoCard("Fondo de dueños", c.saldo, null)}`;
@@ -335,7 +372,7 @@ function arqueoCard(cuenta, saldo, usdSaldo) {
       ${conUsd ? `<label class="fl">Saldo según la app (US$)<input id="a_sisu" name="saldoUsd" inputmode="decimal" readonly value="${ea.saldoUsd ?? usdSaldo}"></label>
       <label class="fl">Dólares contados (US$)<input id="a_contu" name="contadoUsd" inputmode="decimal" value="${ea.contadoUsd ?? ""}"></label>` : ""}
       <label class="fl wide">Comentario<input id="a_com" name="comentario" value="${esc(ea.comentario || "")}"></label>
-      <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>${ea.id ? "Guardar arqueo" : "Registrar arqueo"}</button>${ea.id ? `<button class="b" type="button" data-act="cancelArq">Cancelar</button><button class="b danger" type="button" data-act="delArq" data-id="${ea.id}">Borrar</button>` : ""}</div>
+      <div class="btns wide"><button class="b primary" type="submit" ${roOnly(ea.id ? 3 : 2)}>${ea.id ? "Guardar arqueo" : "Registrar arqueo"}</button>${ea.id ? `<button class="b" type="button" data-act="cancelArq">Cancelar</button><button class="b danger" type="button" ${roOnly(3)} data-act="delArq" data-id="${ea.id}">Borrar</button>` : ""}</div>
     </form>
     ${arq.length ? `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Fecha</th><th>Responsable</th><th class="n">Según app</th><th class="n">Contado</th><th class="n">Diferencia</th></tr></thead><tbody>${arq.map(a => `<tr class="click" data-act="editArq" data-id="${a.id}"><td>${fmtD(a.fecha)}</td><td>${esc(a.responsable || "—")}<div class="muted small">${esc(a.comentario || "")}</div></td><td class="n">${pesos(a.saldoSistema)}${a.contadoUsd != null ? `<div class="muted small">${usd(a.saldoUsd)}</div>` : ""}</td><td class="n">${pesos(a.contado)}${a.contadoUsd != null ? `<div class="muted small">${usd(a.contadoUsd)}</div>` : ""}</td><td class="n">${pill(dif(a, "contado", "saldoSistema"), pesos)}${a.contadoUsd != null ? `<div style="margin-top:4px">${pill(dif(a, "contadoUsd", "saldoUsd"), usd)}</div>` : ""}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">Todavía no hay arqueos de ${cuenta === "Fondo de dueños" ? "este fondo" : "los retiros"}.</div>`}
   </div>`;
@@ -358,7 +395,7 @@ function vFuerte() {
       <label class="fl">Pesos<input id="cf_p" name="pesos" inputmode="decimal" value="${e.pesos ?? ""}"></label>
       <label class="fl">Dólares<input id="cf_u" name="dolares" inputmode="decimal" value="${e.dolares ?? ""}"></label>
       <label class="fl wide">Motivo<input id="cf_mot" name="motivo" required value="${esc(e.motivo || "")}" placeholder="Retiro de la caja del restorán"></label>
-      <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>${e.id ? "Guardar cambios" : "Registrar"}</button>${e.id ? `<button class="b" type="button" data-act="cancelCF">Cancelar</button><button class="b danger" type="button" data-act="delCF" data-id="${e.id}">Borrar</button>` : ""}<span class="muted small">Acá van solo los retiros de la caja del restorán. Lo que te dan los dueños y lo que gastás de esa plata va en Fondo de dueños.</span></div>
+      <div class="btns wide"><button class="b primary" type="submit" ${roOnly(e.id ? 3 : 2)}>${e.id ? "Guardar cambios" : "Registrar"}</button>${e.id ? `<button class="b" type="button" data-act="cancelCF">Cancelar</button><button class="b danger" type="button" ${roOnly(3)} data-act="delCF" data-id="${e.id}">Borrar</button>` : ""}<span class="muted small">Acá van solo los retiros de la caja del restorán. Lo que te dan los dueños y lo que gastás de esa plata va en Fondo de dueños.</span></div>
     </form>
     ${rows.length ? `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Fecha</th><th>Motivo</th><th class="n">Pesos</th><th class="n">Dólares</th></tr></thead><tbody>${rows.map(x => `<tr class="click" data-act="${x._adel ? "goAdel" : "editCF"}" data-id="${x.id}"><td>${fmtD(x.fecha)}</td><td>${esc(x.motivo)} <span class="pill ${x.tipo === "Salida" ? "bad" : "good"}">${esc(x.tipo)}</span></td><td class="n">${x.pesos ? pesos(x.pesos) : "—"}</td><td class="n">${x.dolares ? usd(x.dolares) : "—"}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay retiros todavía.</div>`}
   </div>
@@ -380,20 +417,20 @@ function vAdelantos() {
   </div>
   <div class="card"><h3>${e.id ? "Editar adelanto" : "Nuevo adelanto"}</h3>
     <form class="f" id="fAdel">
-      <label class="fl">Empleado<select id="ad_emp" name="empleado" required><option value="">Elegí…</option>${empleadosOpts(e.empleado)}<option value="__nuevo">+ Persona nueva…</option></select></label>
+      <label class="fl">Empleado<select id="ad_emp" name="empleado" required><option value="">Elegí…</option>${empleadosOpts(e.empleado)}${niv("personal") >= 2 ? `<option value="__nuevo">+ Persona nueva…</option>` : ""}</select></label>
       <label class="fl" id="ad_nuevoL" hidden>Nombre y apellido de la persona nueva<input id="ad_nuevo" name="nuevoNombre"></label>
       <label class="fl">Fecha<input id="ad_fecha" name="fecha" type="date" required value="${esc(e.fecha || today())}"></label>
       <label class="fl">Monto ($)<input id="ad_monto" name="monto" inputmode="decimal" required value="${e.monto ?? ""}"></label>
       <label class="fl">¿De dónde sale la plata?<select id="ad_origen" name="origen" required>${opts(["Fondo de dueños","Retiros de caja"], e.origen || "Fondo de dueños")}</select></label>
       <label class="fl">Estado<select id="ad_estado" name="estado">${opts(["Entregado","Pendiente de entrega"], e.estado || "Entregado")}</select></label>
       <label class="fl wide">Notas<input id="ad_notas" name="notas" value="${esc(e.notas || "")}"></label>
-      <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>${e.id ? "Guardar cambios" : "Agregar adelanto"}</button>${e.id ? `<button class="b" type="button" data-act="cancelAdel">Cancelar</button><button class="b danger" type="button" data-act="delAdel" data-id="${e.id}">Borrar</button>` : ""}<span class="muted small">Un adelanto entregado se descuenta del fondo de dueños o de los retiros de caja, según lo que elijas, y se descuenta completo del sueldo siguiente.</span></div>
+      <div class="btns wide"><button class="b primary" type="submit" ${roOnly(e.id ? 3 : 2)}>${e.id ? "Guardar cambios" : "Agregar adelanto"}</button>${e.id ? `<button class="b" type="button" data-act="cancelAdel">Cancelar</button><button class="b danger" type="button" ${roOnly(3)} data-act="delAdel" data-id="${e.id}">Borrar</button>` : ""}<span class="muted small">Un adelanto entregado se descuenta del fondo de dueños o de los retiros de caja, según lo que elijas, y se descuenta completo del sueldo siguiente.</span></div>
     </form>
   </div>
-  <div class="card"><h3>Pendientes de entregar</h3>${tbl(pend, a => `<button class="b small" data-act="entregar" data-id="${a.id}" ${roOnly()}>Marcar entregado</button>`, "No hay adelantos pendientes de entregar.")}</div>
-  <div class="card"><div class="toolbar"><h3 style="margin:0">Entregados, a descontar</h3>${sinDesc.length ? `<button class="b primary small" data-act="descontarTodos" data-n="${sinDesc.length}" ${roOnly()}>Descontar a todos (${sinDesc.length} · ${pesos(sinDesc.reduce((s,a)=>s+(a.monto||0),0))})</button>` : ""}</div>
-    ${sinDesc.length ? `<p class="muted small" style="margin:6px 0 10px">Cuando ya pasaste los sueldos con los adelantos al contador, tocá "Descontar a todos" y pasan todos a "Ya descontados".</p>` : ""}${tbl(sinDesc, a => `<button class="b small" data-act="descontar" data-id="${a.id}" ${roOnly()}>Ya descontado</button>`, "No hay adelantos por descontar.")}</div>
-  ${desc.length ? `<div class="card"><h3>Ya descontados</h3>${tbl(desc.map(a => ({...a, notas: [a.notas, a.descontadoFecha ? "Descontado el " + fmtD(a.descontadoFecha) : ""].filter(Boolean).join(" · ")})), a => `<button class="b small" data-act="nodescontar" data-id="${a.id}" ${roOnly()}>Deshacer</button>`, "")}</div>` : ""}`;
+  <div class="card"><h3>Pendientes de entregar</h3>${tbl(pend, a => `<button class="b small" data-act="entregar" data-id="${a.id}" ${roOnly(3)}>Marcar entregado</button>`, "No hay adelantos pendientes de entregar.")}</div>
+  <div class="card"><div class="toolbar"><h3 style="margin:0">Entregados, a descontar</h3>${sinDesc.length ? `<button class="b primary small" data-act="descontarTodos" data-n="${sinDesc.length}" ${roOnly(3)}>Descontar a todos (${sinDesc.length} · ${pesos(sinDesc.reduce((s,a)=>s+(a.monto||0),0))})</button>` : ""}</div>
+    ${sinDesc.length ? `<p class="muted small" style="margin:6px 0 10px">Cuando ya pasaste los sueldos con los adelantos al contador, tocá "Descontar a todos" y pasan todos a "Ya descontados".</p>` : ""}${tbl(sinDesc, a => `<button class="b small" data-act="descontar" data-id="${a.id}" ${roOnly(3)}>Ya descontado</button>`, "No hay adelantos por descontar.")}</div>
+  ${desc.length ? `<div class="card"><h3>Ya descontados</h3>${tbl(desc.map(a => ({...a, notas: [a.notas, a.descontadoFecha ? "Descontado el " + fmtD(a.descontadoFecha) : ""].filter(Boolean).join(" · ")})), a => `<button class="b small" data-act="nodescontar" data-id="${a.id}" ${roOnly(3)}>Deshacer</button>`, "")}</div>` : ""}`;
 }
 
 const propKey = (f, t) => f + "|" + t;
@@ -427,8 +464,8 @@ function vPropinas() {
     <div class="week">
       <div class="d hd"><span>Día</span><span>Turno día ($)</span><span>Turno noche ($)</span><span style="text-align:right">Total</span></div>
       ${w.dias.map(r => `<div class="d"><span>${dia(r.f)} <span class="muted small">${fmtD(r.f).slice(0,5)}</span></span>
-        <input id="pd_${r.f}" data-prop="${r.f}|Día" inputmode="decimal" value="${esc(propVal(r.f, "Día"))}" class="${propDirty(r.f, "Día")}" aria-label="Turno día ${fmtD(r.f)}" ${roOnly()}>
-        <input id="pn_${r.f}" data-prop="${r.f}|Noche" inputmode="decimal" value="${esc(propVal(r.f, "Noche"))}" class="${propDirty(r.f, "Noche")}" aria-label="Turno noche ${fmtD(r.f)}" ${roOnly()}>
+        <input id="pd_${r.f}" data-prop="${r.f}|Día" inputmode="decimal" value="${esc(propVal(r.f, "Día"))}" class="${propDirty(r.f, "Día")}" aria-label="Turno día ${fmtD(r.f)}" ${roOnly(propina(r.f, "Día") ? 3 : 2)}>
+        <input id="pn_${r.f}" data-prop="${r.f}|Noche" inputmode="decimal" value="${esc(propVal(r.f, "Noche"))}" class="${propDirty(r.f, "Noche")}" aria-label="Turno noche ${fmtD(r.f)}" ${roOnly(propina(r.f, "Noche") ? 3 : 2)}>
         <strong style="text-align:right">${pesos(r.t)}</strong></div>`).join("")}
       <div class="d" style="border-top:1px solid var(--line);padding-top:8px"><strong>Total semana</strong><span class="muted">${pesos(w.dias.reduce((s,r)=>s+r.d,0))}</span><span class="muted">${pesos(w.dias.reduce((s,r)=>s+r.n,0))}</span><strong style="text-align:right">${pesos(w.total)}</strong></div>
     </div>
@@ -440,8 +477,8 @@ function vPropinas() {
       <dt>Se puede entregar el lunes</dt><dd>${fmtD(w.entrega)}</dd>
     </dl>
     <div class="btns" style="margin-top:12px">
-      <label class="btns small"><input type="checkbox" id="chkAcred" data-sem="acreditada" ${st.acreditada ? "checked" : ""} ${roOnly()} style="width:auto"> Acreditada por OCA</label>
-      <label class="btns small"><input type="checkbox" id="chkEnt" data-sem="entregada" ${st.entregada ? "checked" : ""} ${roOnly()} style="width:auto"> Entregada al jefe de cocina</label>
+      <label class="btns small"><input type="checkbox" id="chkAcred" data-sem="acreditada" ${st.acreditada ? "checked" : ""} ${roOnly(3)} style="width:auto"> Acreditada por OCA</label>
+      <label class="btns small"><input type="checkbox" id="chkEnt" data-sem="entregada" ${st.entregada ? "checked" : ""} ${roOnly(3)} style="width:auto"> Entregada al jefe de cocina</label>
     </div></div>
     <div class="card"><h3>Todas las semanas</h3>${lista.length ? `<div class="tbl-wrap"><table><thead><tr><th>Semana</th><th class="n">Total</th><th>Estado</th></tr></thead><tbody>${lista.map(l => { const s = S.semanasPropina.find(x => x.id === l) || {}; return `<tr class="click" data-act="verSem" data-id="${l}"><td>${fmtD(l)}</td><td class="n">${pesos(semanas[l])}</td><td>${s.entregada ? '<span class="pill good">Entregada</span>' : s.acreditada ? '<span class="pill acc">Acreditada</span>' : `<span class="pill mute">Entrega ${fmtD(semanaPropina(l).entrega)}</span>`}</td></tr>`; }).join("")}</tbody></table></div>` : `<div class="empty">Todavía no hay propinas cargadas.</div>`}</div>
   </div>`;
@@ -464,16 +501,17 @@ function vPersonal() {
       <label class="fl">Cargo<input id="pe_car" name="cargo" value="${esc(p.cargo || "")}"></label>
       <label class="fl">Fecha de alta<input id="pe_alta" name="alta" type="date" value="${esc(p.alta || "")}"></label>
       <label class="fl">Fecha de baja<input id="pe_baja" name="baja" type="date" value="${esc(p.baja || "")}"></label>
-      <label class="fl">Sueldo líquido ($)<input id="pe_liq" name="sueldoLiquido" inputmode="decimal" value="${p.sueldoLiquido ?? ""}" placeholder="${p.laudo ? "Laudo" : ""}"></label>
-      <label class="fl">Sueldo nominal ($)<input id="pe_nomi" name="sueldoNominal" inputmode="decimal" value="${p.sueldoNominal ?? ""}"></label>
+      ${priv("sueldos") ? `<label class="fl">Sueldo líquido ($)<input id="pe_liq" name="sueldoLiquido" inputmode="decimal" value="${p.sueldoLiquido ?? ""}" placeholder="${p.laudo ? "Laudo" : ""}"></label>
+      <label class="fl">Sueldo nominal ($)<input id="pe_nomi" name="sueldoNominal" inputmode="decimal" value="${p.sueldoNominal ?? ""}"></label>` : ""}
       <label class="fl">Cobra por laudo<select id="pe_laudo" name="laudo">${opts(["No","Sí"], p.laudo ? "Sí" : "No")}</select></label>
       <label class="fl">Horario<input id="pe_hor" name="horario" value="${esc(p.horario || "")}" placeholder="Ej.: 18 a 01, lunes libre"></label>
-      <label class="fl">Documento<input id="pe_doc" name="documento" value="${esc(p.documento || "")}"></label>
-      <label class="fl">Teléfono<input id="pe_tel" name="telefono" value="${esc(p.telefono || "")}"></label>
+      ${priv("documentos") ? `<label class="fl">Documento<input id="pe_doc" name="documento" value="${esc(p.documento || "")}"></label>
+      <label class="fl">Teléfono<input id="pe_tel" name="telefono" value="${esc(p.telefono || "")}"></label>` : ""}
+      ${priv("cuentas") ? `<label class="fl">Cuenta bancaria<input id="pe_cta" name="cuenta" value="${esc(p.cuenta || "")}" placeholder="Banco y número"></label>` : ""}
       <label class="fl">Contrato firmado<select id="pe_con" name="contrato">${opts(["","Sí","No"], p.contrato || "")}</select></label>
       <label class="fl wide">Notas<input id="pe_not" name="notas" value="${esc(p.notas || "")}"></label>
-      ${p.id ? `<div class="wide small muted">Adelantos a descontar: <strong>${pesos(adelPendDesc(p.nombre))}</strong>${p.sueldoLiquido ? ` · líquido menos adelantos: <strong>${pesos(p.sueldoLiquido - adelPendDesc(p.nombre))}</strong>` : ""}</div>` : ""}
-      <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>${p.id ? "Guardar ficha" : "Agregar persona"}</button><button class="b" type="button" data-act="cancelPer">Cerrar</button>${p.id ? `<button class="b danger" type="button" data-act="delPer" data-id="${p.id}">Borrar</button>` : ""}</div>
+      ${p.id ? `<div class="wide small muted">Adelantos a descontar: <strong>${pesos(adelPendDesc(p.nombre))}</strong>${priv("sueldos") && p.sueldoLiquido ? ` · líquido menos adelantos: <strong>${pesos(p.sueldoLiquido - adelPendDesc(p.nombre))}</strong>` : ""}</div>` : ""}
+      <div class="btns wide"><button class="b primary" type="submit" ${roOnly(p.id ? 3 : 2)}>${p.id ? "Guardar ficha" : "Agregar persona"}</button><button class="b" type="button" data-act="cancelPer">Cerrar</button>${p.id ? `<button class="b danger" type="button" ${roOnly(3)} data-act="delPer" data-id="${p.id}">Borrar</button>` : ""}</div>
     </form></div>`;
   return `
   ${e || ui.editing.per === "nuevo" ? form(e || {}) : ""}
@@ -483,7 +521,7 @@ function vPersonal() {
         <input id="perQ" type="search" placeholder="Buscar nombre o cargo" value="${esc(ui.personalQ)}" aria-label="Buscar">
         <select id="perEst" aria-label="Estado">${[["activos","Activos"],["bajas","Bajas"],["todos","Todos"]].map(([k,l]) => `<option value="${k}" ${ui.personalEstado === k ? "selected" : ""}>${l}</option>`).join("")}</select>
         <button class="b primary" data-act="newPer" ${roOnly()}>Agregar</button></div></div>
-    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Nombre</th><th>Sector</th><th>Alta</th><th class="n">Sueldo líquido</th><th class="n">Adelantos</th><th>Estado</th></tr></thead><tbody>${list.map(p => { const est = estadoPersona(p); const ad = adelPendDesc(p.nombre); return `<tr class="click" data-act="editPer" data-id="${p.id}"><td>${esc(p.nombre)}<div class="muted small">${esc(p.cargo || "")}</div></td><td>${esc(p.sector || "")}</td><td>${fmtD(p.alta)}</td><td class="n">${p.sueldoLiquido ? pesos(p.sueldoLiquido) : p.laudo ? "Laudo" : "—"}</td><td class="n">${ad ? pesos(ad) : "—"}</td><td><span class="pill ${est === "Activo" ? "good" : est === "Baja" ? "mute" : "acc"}">${est}${est === "Baja" ? " " + fmtD(p.baja).slice(0,5) : ""}</span></td></tr>`; }).join("")}</tbody></table></div>` : `<div class="empty">No hay personas que coincidan.</div>`}
+    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Nombre</th><th>Sector</th><th>Alta</th>${priv("sueldos") ? `<th class="n">Sueldo líquido</th>` : ""}<th class="n">Adelantos</th><th>Estado</th></tr></thead><tbody>${list.map(p => { const est = estadoPersona(p); const ad = adelPendDesc(p.nombre); return `<tr class="click" data-act="editPer" data-id="${p.id}"><td>${esc(p.nombre)}<div class="muted small">${esc(p.cargo || "")}</div></td><td>${esc(p.sector || "")}</td><td>${fmtD(p.alta)}</td>${priv("sueldos") ? `<td class="n">${p.sueldoLiquido ? pesos(p.sueldoLiquido) : p.laudo ? "Laudo" : "—"}</td>` : ""}<td class="n">${ad ? pesos(ad) : "—"}</td><td><span class="pill ${est === "Activo" ? "good" : est === "Baja" ? "mute" : "acc"}">${est}${est === "Baja" ? " " + fmtD(p.baja).slice(0,5) : ""}</span></td></tr>`; }).join("")}</tbody></table></div>` : `<div class="empty">No hay personas que coincidan.</div>`}
   </div>`;
 }
 
@@ -516,12 +554,12 @@ function vPagos() {
       <label class="fl pgPag" ${e.estado === "Pagado" ? "" : "hidden"}>¿De dónde salió la plata?<select id="pg_desde" name="pagadoDesde">${desdes().map(x => `<option value="${esc(x)}" ${(e.pagadoDesde || "Fondo de dueños") === x ? "selected" : ""}>${esc(desdeLbl(x))}</option>`).join("")}<option value="__nuevo">+ Agregar otra forma de pago…</option></select></label>
       <label class="fl pgPag" id="pg_desdeNL" hidden>Nombre de la nueva forma de pago<input id="pg_desdeN" name="desdeNuevo" placeholder="Ej.: Pagó Fernando"></label>
       <label class="fl wide">Notas<input id="pg_not" name="notas" value="${esc(e.notas || "")}"></label>
-      <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>${e.id ? "Guardar cambios" : "Agregar"}</button>${e.id ? `<button class="b" type="button" data-act="cancelPago">Cancelar</button><button class="b danger" type="button" data-act="delPago" data-id="${e.id}">Borrar</button>` : ""}</div>
+      <div class="btns wide"><button class="b primary" type="submit" ${roOnly(e.id ? 3 : 2)}>${e.id ? "Guardar cambios" : "Agregar"}</button>${e.id ? `<button class="b" type="button" data-act="cancelPago">Cancelar</button><button class="b danger" type="button" ${roOnly(3)} data-act="delPago" data-id="${e.id}">Borrar</button>` : ""}</div>
     </form>
   </div>
   <div class="card">
     <div class="toolbar"><h3 style="margin:0">Pagos</h3><select id="pgEst" aria-label="Estado">${[["pendiente","Pendientes"],["pagado","Pagados"],["todos","Todos"]].map(([k,l]) => `<option value="${k}" ${ui.pagosEstado === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
-    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Vence</th><th>Proveedor</th><th class="n">Monto</th><th></th></tr></thead><tbody>${list.map(p => `<tr class="click" data-act="editPago" data-id="${p.id}"><td>${p.estado === "Pagado" ? `<span class="pill good">Pagado</span>` : vencPill(p.vencimiento)}</td><td>${esc(p.proveedor)} <span class="muted small">· ${esc(p.tipo || "")}</span><div class="muted small">${esc([p.concepto, p.notas].filter(Boolean).join(" · "))}</div></td><td class="n">${p.monto == null ? '<span class="pill warn">a definir</span>' : money(p.monto, p.moneda)}</td><td class="n">${p.estado !== "Pagado" ? (ui.pagando === p.id ? `<div class="small muted" style="margin-bottom:4px">¿De dónde sale la plata?</div><div class="btns" style="justify-content:flex-end"><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Fondo de dueños">Fondo de dueños</button><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Retiros de caja">Retiros de caja</button>${desdes().slice(2).map(x => `<button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="${esc(x)}">${esc(desdeLbl(x))}</button>`).join("")}<button class="b small" data-act="editPago" data-id="${p.id}" data-nuevo="1">+ Otra forma…</button><button class="b small" data-act="pagarCancel">Cancelar</button></div>` : `<button class="b small" data-act="pagar" data-id="${p.id}" ${roOnly()} ${p.monto == null ? "disabled title=\"Primero poné el monto\"" : ""}>Marcar pagado</button>`) : `<span class="muted small">${esc(p.pagadoDesde ? desdeLbl(p.pagadoDesde) : "")}${p.fechaPago ? "<br>" + fmtD(p.fechaPago) : ""}</span><div><button class="b small" type="button" data-act="editPago" data-id="${p.id}">Ver / editar</button></div>`}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay pagos en esta lista.</div>`}
+    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Vence</th><th>Proveedor</th><th class="n">Monto</th><th></th></tr></thead><tbody>${list.map(p => `<tr class="click" data-act="editPago" data-id="${p.id}"><td>${p.estado === "Pagado" ? `<span class="pill good">Pagado</span>` : vencPill(p.vencimiento)}</td><td>${esc(p.proveedor)} <span class="muted small">· ${esc(p.tipo || "")}</span><div class="muted small">${esc([p.concepto, p.notas].filter(Boolean).join(" · "))}</div></td><td class="n">${p.monto == null ? '<span class="pill warn">a definir</span>' : money(p.monto, p.moneda)}</td><td class="n">${p.estado !== "Pagado" ? (ui.pagando === p.id ? `<div class="small muted" style="margin-bottom:4px">¿De dónde sale la plata?</div><div class="btns" style="justify-content:flex-end"><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Fondo de dueños">Fondo de dueños</button><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Retiros de caja">Retiros de caja</button>${desdes().slice(2).map(x => `<button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="${esc(x)}">${esc(desdeLbl(x))}</button>`).join("")}<button class="b small" data-act="editPago" data-id="${p.id}" data-nuevo="1">+ Otra forma…</button><button class="b small" data-act="pagarCancel">Cancelar</button></div>` : `<button class="b small" data-act="pagar" data-id="${p.id}" ${roOnly(3)} ${p.monto == null ? "disabled title=\"Primero poné el monto\"" : ""}>Marcar pagado</button>`) : `<span class="muted small">${esc(p.pagadoDesde ? desdeLbl(p.pagadoDesde) : "")}${p.fechaPago ? "<br>" + fmtD(p.fechaPago) : ""}</span><div><button class="b small" type="button" data-act="editPago" data-id="${p.id}">Ver / editar</button></div>`}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay pagos en esta lista.</div>`}
   </div>`;
 }
 
@@ -531,7 +569,7 @@ function vAjustes() {
     <form class="f" id="fCfg">
       <label class="fl">Cotización del dólar ($ por US$)<input id="cfg_cot" name="cotizacion" inputmode="decimal" value="${S.cfg.cotizacion}"></label>
       <label class="fl">Días hasta que OCA acredita la propina<input id="cfg_dias" name="diasAcreditacion" inputmode="numeric" value="${S.cfg.diasAcreditacion}"></label>
-      <div class="btns wide"><button class="b primary" type="submit" ${roOnly()}>Guardar</button><span class="muted small">La cotización queda fija hasta que la cambies. Los movimientos en dólares guardan la cotización del día en que se cargaron.</span></div>
+      <div class="btns wide"><button class="b primary" type="submit" ${adminOnly()}>Guardar</button><span class="muted small">La cotización queda fija hasta que la cambies. Los movimientos en dólares guardan la cotización del día en que se cargaron.</span></div>
     </form></div>
   <div class="card"><h3>Copia de los datos</h3>
     <p class="muted small">Descargá todo en un archivo para tener una copia o para pasarlo a otro sistema más adelante.</p>
@@ -622,23 +660,26 @@ document.addEventListener("submit", async ev => {
     if (d.empleado === "__nuevo") {
       const n = (d.nuevoNombre || "").trim(); if (!n) { toast("Poné el nombre de la persona nueva"); return; }
       const ex = S.personal.find(p => norm(p.nombre) === norm(n));
-      if (!ex) { if (!await save("personal", slug(n), {nombre: n, sector: "Otros", cargo: "", alta: today(), baja: null, sueldoLiquido: null, sueldoNominal: null, laudo: false, horario: "", documento: "", telefono: "", contrato: "", notas: "Agregada desde Adelantos, completar ficha."})) return; await marcarNuevo("Persona", n, "Adelantos"); }
+      if (!ex) { if (!await save("personal", slug(n), {nombre: n, sector: "Otros", cargo: "", alta: today(), baja: null, laudo: false, horario: "", contrato: "", notas: "Agregada desde Adelantos, completar ficha."})) return; await marcarNuevo("Persona", n, "Adelantos"); }
       d.empleado = ex ? ex.nombre : n;
     }
     const old = S.adelantos.find(a => a.id === ui.editing.adel) || {};
     const rec = {empleado: d.empleado, fecha: d.fecha, monto, estado: d.estado, origen: d.origen || "Fondo de dueños", descontado: !!old.descontado, notas: d.notas.trim()};
     if (await save("adelantos", ui.editing.adel, rec)) { toast(ui.editing.adel ? "Adelanto actualizado" : "Adelanto agregado"); ui.editing.adel = null; render(); }
   } else if (f.id === "fPer") {
-    const rec = {nombre: d.nombre.trim(), sector: d.sector, cargo: d.cargo.trim(), alta: d.alta || null, baja: d.baja || null, sueldoLiquido: numIn(d.sueldoLiquido), sueldoNominal: numIn(d.sueldoNominal), laudo: d.laudo === "Sí", horario: d.horario.trim(), documento: d.documento.trim(), telefono: d.telefono.trim(), contrato: d.contrato, notas: d.notas.trim()};
+    const rec = {nombre: d.nombre.trim(), sector: d.sector, cargo: d.cargo.trim(), alta: d.alta || null, baja: d.baja || null, laudo: d.laudo === "Sí", horario: d.horario.trim(), contrato: d.contrato, notas: d.notas.trim()};
     if (!rec.nombre) { toast("Poné el nombre"); return; }
-    const id = ui.editing.per === "nuevo" ? null : ui.editing.per;
-    if (await save("personal", id, rec)) { if (!id) await marcarNuevo("Persona", rec.nombre, "Personal"); toast("Ficha guardada"); ui.editing.per = null; render(); }
+    const nuevo = ui.editing.per === "nuevo"; const id = nuevo ? uid() : ui.editing.per;
+    const old = S.personal.find(x => x.id === id);
+    if ("sueldoLiquido" in d) d.sueldoLiquido = numIn(d.sueldoLiquido) ?? ""; if ("sueldoNominal" in d) d.sueldoNominal = numIn(d.sueldoNominal) ?? "";
+    if (await save("personal", id, rec) && await guardarPriv(id, d, old)) { if (nuevo) await marcarNuevo("Persona", rec.nombre, "Personal"); toast("Ficha guardada"); ui.editing.per = null; render(); }
   } else if (f.id === "fPago") {
     if (d.proveedor.trim() && !conocidos().has(norm(d.proveedor))) await marcarNuevo("Proveedor", d.proveedor.trim(), "Pagos");
     const pagado = d.estado === "Pagado";
     if (pagado && d.pagadoDesde === "__nuevo") { d.pagadoDesde = (d.desdeNuevo || "").trim(); if (!d.pagadoDesde) { toast("Escribí el nombre de la forma de pago"); return; } }
     const rec = {proveedor: d.proveedor.trim(), tipo: d.tipo, concepto: d.concepto.trim(), monto: numIn(d.monto), moneda: d.moneda, vencimiento: d.vencimiento || null, estado: d.estado, notas: d.notas.trim(), fechaPago: pagado ? (d.fechaPago || today()) : null, pagadoDesde: pagado ? d.pagadoDesde : null};
     if (pagado && rec.monto == null) { toast("Poné el monto para marcarlo pagado"); return; }
+    if (pagado && niv("pagos") < 3) { toast("Solo un editor puede marcar un pago como pagado"); return; }
     const old = S.pagos.find(x => x.id === ui.editing.pago);
     const id = ui.editing.pago || uid();
     const cambia = ["estado", "pagadoDesde", "monto", "moneda", "fechaPago", "proveedor", "concepto"].some(k => (old?.[k] ?? null) !== (rec[k] ?? null));
@@ -678,7 +719,16 @@ document.addEventListener("input", ev => { if (ev.target.id === "perQ") { ui.per
 
 
 /* ---------- usuarios ---------- */
-const ROLES = [["admin","Administrador: ve, carga y maneja usuarios"],["carga","Carga: ve y carga datos"],["lectura","Solo ver"]];
+const ROLES = [["admin","Administrador: todo, y maneja usuarios"],["carga","Usuario (empieza editando todo)"],["lectura","Usuario (empieza solo viendo)"]];
+const rolOpts = (cur, largo) => { const u = cur && cur !== "admin" ? cur : "lectura"; return `<option value="admin" ${cur === "admin" ? "selected" : ""}>${largo ? "Administrador: ve y edita todo, y maneja usuarios" : "Administrador"}</option><option value="${u}" ${cur !== "admin" ? "selected" : ""}>${largo ? "Usuario: ve solo las secciones que elijas" : "Usuario"}</option>`; };
+const NIV_LBL = [["no","Sin acceso"],["ver","Ver"],["cargar","Cargar"],["editar","Editar"]];
+const nivKey = n => NIV_LBL[n][0];
+function resumenPermisos(p) {
+  if (p.rol === "admin") return "Todo";
+  const ss = SECS.filter(([k]) => nivelDe(p, k) >= 1).map(([k, l]) => l + " (" + NIV_LBL[nivelDe(p, k)][1].toLowerCase() + ")");
+  const pv = PRIV.filter(([g]) => privDe(p, g)).map(([, l]) => l.toLowerCase());
+  return (ss.join(", ") || "Nada") + (pv.length ? " · ve " + pv.join(", ") : "");
+}
 async function cargarPerfiles() {
   const {data, error} = await sb.from("perfiles").select("*").order("creado");
   if (!error) { S.perfiles = data; render(); }
@@ -693,8 +743,14 @@ function vUsuarios() {
       <label class="fl">Nombre<input id="eu_nom" name="nombre" required value="${esc(eu.nombre)}" autocomplete="off"></label>
       <label class="fl">Email (usuario para entrar)<input id="eu_mail" name="email" type="email" required value="${esc(eu.email)}" autocomplete="off"></label>
       <label class="fl">Nueva contraseña (dejala vacía para no cambiarla)<input id="eu_pw" name="password" type="text" minlength="8" autocomplete="new-password"></label>
-      <label class="fl">Permiso<select id="eu_rol" name="rol" ${yo ? "disabled" : ""}>${ROLES.map(([k, l]) => `<option value="${k}" ${eu.rol === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      <label class="fl">Permiso<select id="eu_rol" name="rol" ${yo ? "disabled" : ""}>${rolOpts(eu.rol, true)}</select></label>
       <label class="fl">Activo<select id="eu_act" name="activo" ${yo ? "disabled" : ""}><option value="si" ${eu.activo ? "selected" : ""}>Sí, puede entrar</option><option value="no" ${eu.activo ? "" : "selected"}>No, sin acceso</option></select></label>
+      ${eu.rol === "admin" ? `<div class="wide muted small">Un administrador ve y edita todo. Para elegir secciones, cambiale el permiso a Usuario.</div>` : `<div class="wide"><h3 style="margin:8px 0 4px">Qué puede hacer en cada sección</h3>
+        <p class="muted small" style="margin:0 0 8px">Ver: solo mira. Cargar: agrega cosas nuevas, pero no cambia ni borra lo que ya está. Editar: puede todo en esa sección. Sin acceso: la pestaña no le aparece.</p>
+        <div class="tbl-wrap"><table><tbody>${SECS.map(([k, l]) => `<tr><td>${l}</td><td class="n"><select name="sec_${k}" id="eu_sec_${k}" aria-label="Permiso en ${l}">${NIV_LBL.map(([v, t], i) => `<option value="${v}" ${nivelDe(eu, k) === i ? "selected" : ""}>${t}</option>`).join("")}</select></td></tr>`).join("")}</tbody></table></div>
+        <h3 style="margin:12px 0 4px">Datos privados del personal</h3>
+        <p class="muted small" style="margin:0 0 8px">Solo si tiene acceso a Personal. Lo que no tildes no lo ve ni lo puede cambiar.</p>
+        <div class="btns">${PRIV.map(([g, l]) => `<label class="btns small"><input type="checkbox" name="priv_${g}" id="eu_priv_${g}" ${privDe(eu, g) ? "checked" : ""} style="width:auto"> ${l}</label>`).join("")}</div></div>`}
       <div class="btns wide"><button class="b primary" type="submit">Guardar cambios</button><button class="b" type="button" data-act="cancelEditUser">Cancelar</button>${yo ? `<span class="muted small">Tu propio permiso no se puede cambiar desde acá.</span>` : `<span class="muted small">Si cambiás el email o la contraseña, avisale a la persona.</span>`}</div>
     </form>
   </div>`; }
@@ -704,13 +760,13 @@ function vUsuarios() {
       <label class="fl">Nombre<input id="u_nom" name="nombre" required autocomplete="off"></label>
       <label class="fl">Email (es el usuario para entrar)<input id="u_mail" name="email" type="email" required autocomplete="off"></label>
       <label class="fl">Contraseña (mínimo 8)<input id="u_pw" name="password" type="text" minlength="8" required autocomplete="new-password"></label>
-      <label class="fl">Permiso<select id="u_rol" name="rol">${ROLES.map(([k, l]) => `<option value="${k}" ${k === "lectura" ? "selected" : ""}>${l}</option>`).join("")}</select></label>
-      <div class="btns wide"><button class="b primary" type="submit">Crear usuario</button><span class="muted small">Pasale el email y la contraseña a la persona. El email no necesita ser real, pero tiene que tener forma de email.</span></div>
+      <label class="fl">Permiso<select id="u_rol" name="rol">${rolOpts("lectura", true)}</select></label>
+      <div class="btns wide"><button class="b primary" type="submit">Crear usuario</button><span class="muted small">Pasale el email y la contraseña a la persona. El email no necesita ser real, pero tiene que tener forma de email. Un usuario nuevo empieza viendo todo, sin poder cargar: después tocá Editar para elegir sus secciones.</span></div>
     </form>
   </div>
   <div class="card"><h3>Usuarios</h3>
-    ${ps.length ? `<div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Email</th><th>Permiso</th><th>Activo</th><th></th></tr></thead><tbody>${ps.map(p => `<tr><td>${esc(p.nombre)}${p.id === S.perfil.id ? ` <span class="pill acc">vos</span>` : ""}</td><td>${esc(p.email)}</td><td><select data-perfil-rol="${p.id}" ${p.id === S.perfil.id ? "disabled" : ""} aria-label="Permiso de ${esc(p.nombre)}">${ROLES.map(([k, l]) => `<option value="${k}" ${p.rol === k ? "selected" : ""}>${l.split(":")[0]}</option>`).join("")}</select></td><td><input type="checkbox" data-perfil-activo="${p.id}" ${p.activo ? "checked" : ""} ${p.id === S.perfil.id ? "disabled" : ""} aria-label="Activo"></td><td class="n"><button class="b small" type="button" data-act="editUser" data-id="${p.id}">Editar</button></td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">Cargando usuarios…</div>`}
-    <p class="muted small" style="margin:10px 0 0">Para sacarle el acceso a alguien, destildá Activo. Deja de ver todo en el momento.</p>
+    ${ps.length ? `<div class="tbl-wrap"><table><thead><tr><th>Nombre</th><th>Email</th><th>Permiso</th><th>Qué ve</th><th>Activo</th><th></th></tr></thead><tbody>${ps.map(p => `<tr><td>${esc(p.nombre)}${p.id === S.perfil.id ? ` <span class="pill acc">vos</span>` : ""}</td><td>${esc(p.email)}</td><td><select data-perfil-rol="${p.id}" ${p.id === S.perfil.id ? "disabled" : ""} aria-label="Permiso de ${esc(p.nombre)}">${rolOpts(p.rol)}</select></td><td class="small muted">${esc(resumenPermisos(p))}</td><td><input type="checkbox" data-perfil-activo="${p.id}" ${p.activo ? "checked" : ""} ${p.id === S.perfil.id ? "disabled" : ""} aria-label="Activo"></td><td class="n"><button class="b small" type="button" data-act="editUser" data-id="${p.id}">Editar</button></td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">Cargando usuarios…</div>`}
+    <p class="muted small" style="margin:10px 0 0">Para elegir qué secciones ve cada uno, tocá Editar. Para sacarle el acceso a alguien, destildá Activo: deja de ver todo en el momento.</p>
   </div>`;
 }
 document.addEventListener("submit", async ev => {
@@ -727,7 +783,11 @@ document.addEventListener("submit", async ev => {
     const d = formData(f); const id = f.dataset.id; const btn = f.querySelector("button[type=submit]"); btn.disabled = true;
     const {error} = await sb.rpc("editar_usuario", {p_id: id, p_nombre: d.nombre.trim(), p_email: d.email.trim(), p_password: d.password || null});
     let err = error;
-    if (!err && id !== S.perfil.id) { const r = await sb.from("perfiles").update({rol: d.rol, activo: d.activo === "si"}).eq("id", id); err = r.error; }
+    if (!err && id !== S.perfil.id) {
+      const upd = {rol: d.rol, activo: d.activo === "si"};
+      const eu = (S.perfiles || []).find(p => p.id === id);
+      if (eu && eu.rol !== "admin" && d.rol !== "admin") upd.permisos = {secciones: Object.fromEntries(SECS.map(([k]) => [k, d["sec_" + k] || "no"])), privado: Object.fromEntries(PRIV.map(([g]) => [g, d["priv_" + g] === "on"]))};
+      const r = await sb.from("perfiles").update(upd).eq("id", id); err = r.error; }
     btn.disabled = false;
     if (err) { toast(err.message || "No se pudo guardar"); return; }
     if (id === S.perfil.id) { S.perfil.nombre = d.nombre.trim(); $("#quien").textContent = S.perfil.nombre; }
@@ -817,8 +877,8 @@ async function arrancar() {
   const {data: perfil, error: perr} = await sb.from("perfiles").select("*").eq("id", session.user.id).maybeSingle();
   if (perr) { pantallaLogin("No se pudo leer tu perfil: " + (perr.message || perr.code || "error") + (perr.code ? " (" + perr.code + ")" : "")); return; }
   if (!perfil || !perfil.activo) { await sb.auth.signOut(); pantallaLogin("Tu usuario no está habilitado. Pedile acceso a Facundo."); return; }
-  S.perfil = perfil; S.canWrite = perfil.rol !== "lectura";
-  $("#btnSalir").hidden = false; $("#quien").textContent = perfil.nombre + (perfil.rol === "lectura" ? " · solo ver, no puede cargar" : "");
+  S.perfil = perfil; S.canWrite = SECS.some(([k]) => niv(k) >= 2);
+  $("#btnSalir").hidden = false; $("#quien").textContent = perfil.nombre + (S.canWrite ? "" : " · solo ver, no puede cargar");
   if (arrancado) { render(); return; }
   arrancado = true;
   db = makeDb();
@@ -830,6 +890,7 @@ async function arrancar() {
     let first = true;
     db.collection(col).onSnapshot(snap => {
       S[col] = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      if (col === "personal" || col === "personalPrivado") mergePriv();
       if (first) { first = false; done(); }
       render();
     }, err => { if (first) { first = false; done(); } $("#syncNote").textContent = "Error de conexión"; });

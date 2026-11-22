@@ -180,3 +180,114 @@ alter table "cajaFuerte" add column if not exists "pagoId" text;
 
 -- 20/11: fecha en que se descontó el adelanto
 alter table adelantos add column if not exists "descontadoFecha" date;
+
+-- Permisos por sección (21/11/2026)
+-- nivel: 0 sin acceso, 1 ver, 2 cargar, 3 editar. Admin = 3 en todo.
+-- Si perfiles.permisos.secciones no existe, vale el rol: carga = editar, lectura = ver.
+create or replace function public.nivel(sec text) returns int
+language sql stable security definer set search_path = public as $$
+  select case
+    when p.rol = 'admin' then 3
+    when jsonb_typeof(p.permisos->'secciones') = 'object' then
+      case p.permisos->'secciones'->>sec when 'editar' then 3 when 'cargar' then 2 when 'ver' then 1 else 0 end
+    when p.rol = 'carga' then 3
+    when p.rol = 'lectura' then 1
+    else 0 end
+  from public.perfiles p where p.id = auth.uid() and p.activo
+$$;
+create or replace function public.privado(grupo text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(p.rol = 'admin' or coalesce((p.permisos->'privado'->>grupo)::boolean, false), false)
+  from public.perfiles p where p.id = auth.uid() and p.activo
+$$;
+grant execute on function public.nivel(text) to authenticated;
+grant execute on function public.privado(text) to authenticated;
+
+-- datos privados del personal: una fila por persona y campo
+create table if not exists public."personalPrivado" (
+  id text primary key,
+  persona text not null references public.personal(id) on delete cascade,
+  campo text not null check (campo in ('sueldoLiquido','sueldoNominal','documento','telefono','cuenta')),
+  valor text not null,
+  actualizado timestamptz default now()
+);
+create or replace function public.grupo_privado(campo text) returns text language sql immutable as $$
+  select case when campo in ('sueldoLiquido','sueldoNominal') then 'sueldos' when campo in ('documento','telefono') then 'documentos' else 'cuentas' end
+$$;
+grant execute on function public.grupo_privado(text) to authenticated;
+alter table public."personalPrivado" enable row level security;
+grant select, insert, update, delete on public."personalPrivado" to authenticated;
+-- (acá se copiaron los datos privados existentes desde personal; no van en el repo)
+alter table public.personal drop column if exists "sueldoLiquido", drop column if exists "sueldoNominal", drop column if exists documento, drop column if exists telefono;
+
+-- políticas
+do $$ declare t text; begin
+  foreach t in array array['movimientos','cajaFuerte','arqueos','adelantos','propinas','semanasPropina','personal','pagos','pendientesDrive','config','personalPrivado'] loop
+    execute format('drop policy if exists leer on public.%I', t);
+    execute format('drop policy if exists escribir on public.%I', t);
+    execute format('drop policy if exists p_sel on public.%I', t);
+    execute format('drop policy if exists p_ins on public.%I', t);
+    execute format('drop policy if exists p_upd on public.%I', t);
+    execute format('drop policy if exists p_del on public.%I', t);
+  end loop;
+end $$;
+
+-- secciones simples
+do $$ declare r record; begin
+  for r in select * from (values ('propinas','propinas'),('semanasPropina','propinas'),('pagos','pagos')) v(t, s) loop
+    execute format('create policy p_sel on public.%I for select to authenticated using (public.nivel(%L) >= 1)', r.t, r.s);
+    execute format('create policy p_ins on public.%I for insert to authenticated with check (public.nivel(%L) >= 2)', r.t, r.s);
+    execute format('create policy p_upd on public.%I for update to authenticated using (public.nivel(%L) >= 3) with check (public.nivel(%L) >= 3)', r.t, r.s, r.s);
+    execute format('create policy p_del on public.%I for delete to authenticated using (public.nivel(%L) >= 3)', r.t, r.s);
+  end loop;
+end $$;
+
+-- movimientos (Fondo de dueños) y cajaFuerte (Retiros): además, un editor de Pagos maneja lo que sale de un pago
+do $$ declare r record; begin
+  for r in select * from (values ('movimientos','caja'),('cajaFuerte','fuerte')) v(t, s) loop
+    execute format('create policy p_sel on public.%I for select to authenticated using (public.nivel(%L) >= 1 or ("pagoId" is not null and public.nivel(''pagos'') >= 3))', r.t, r.s);
+    execute format('create policy p_ins on public.%I for insert to authenticated with check (public.nivel(%L) >= 2 or ("pagoId" is not null and public.nivel(''pagos'') >= 3))', r.t, r.s);
+    execute format('create policy p_upd on public.%I for update to authenticated using (public.nivel(%L) >= 3) with check (public.nivel(%L) >= 3)', r.t, r.s, r.s);
+    execute format('create policy p_del on public.%I for delete to authenticated using (public.nivel(%L) >= 3 or ("pagoId" is not null and public.nivel(''pagos'') >= 3))', r.t, r.s);
+  end loop;
+end $$;
+
+-- arqueos: mismo permiso que su fondo
+create policy p_sel on public.arqueos for select to authenticated using (public.nivel(case when cuenta = 'Retiros de caja' then 'fuerte' else 'caja' end) >= 1);
+create policy p_ins on public.arqueos for insert to authenticated with check (public.nivel(case when cuenta = 'Retiros de caja' then 'fuerte' else 'caja' end) >= 2);
+create policy p_upd on public.arqueos for update to authenticated using (public.nivel(case when cuenta = 'Retiros de caja' then 'fuerte' else 'caja' end) >= 3) with check (public.nivel(case when cuenta = 'Retiros de caja' then 'fuerte' else 'caja' end) >= 3);
+create policy p_del on public.arqueos for delete to authenticated using (public.nivel(case when cuenta = 'Retiros de caja' then 'fuerte' else 'caja' end) >= 3);
+
+-- adelantos: los leen también quienes ven los fondos (para el saldo)
+create policy p_sel on public.adelantos for select to authenticated using (greatest(public.nivel('adelantos'), public.nivel('caja'), public.nivel('fuerte')) >= 1);
+create policy p_ins on public.adelantos for insert to authenticated with check (public.nivel('adelantos') >= 2);
+create policy p_upd on public.adelantos for update to authenticated using (public.nivel('adelantos') >= 3) with check (public.nivel('adelantos') >= 3);
+create policy p_del on public.adelantos for delete to authenticated using (public.nivel('adelantos') >= 3);
+
+-- personal: nombres visibles también para quien carga adelantos
+create policy p_sel on public.personal for select to authenticated using (greatest(public.nivel('personal'), public.nivel('adelantos')) >= 1);
+create policy p_ins on public.personal for insert to authenticated with check (public.nivel('personal') >= 2);
+create policy p_upd on public.personal for update to authenticated using (public.nivel('personal') >= 3) with check (public.nivel('personal') >= 3);
+create policy p_del on public.personal for delete to authenticated using (public.nivel('personal') >= 3);
+
+-- datos privados: sección Personal + casilla del grupo
+create policy p_sel on public."personalPrivado" for select to authenticated using (public.nivel('personal') >= 1 and public.privado(public.grupo_privado(campo)));
+create policy p_ins on public."personalPrivado" for insert to authenticated with check (public.nivel('personal') >= 2 and public.privado(public.grupo_privado(campo)));
+create policy p_upd on public."personalPrivado" for update to authenticated using (public.nivel('personal') >= 3 and public.privado(public.grupo_privado(campo))) with check (public.nivel('personal') >= 3 and public.privado(public.grupo_privado(campo)));
+create policy p_del on public."personalPrivado" for delete to authenticated using (public.nivel('personal') >= 3 and public.privado(public.grupo_privado(campo)));
+
+-- pendientes de Drive: cualquiera que cargue algo deja aviso; solo admin los ve y resuelve
+create policy p_sel on public."pendientesDrive" for select to authenticated using (public.mi_rol() is not null);
+create policy p_ins on public."pendientesDrive" for insert to authenticated with check (public.mi_rol() is not null);
+create policy p_upd on public."pendientesDrive" for update to authenticated using (public.mi_rol() = 'admin') with check (public.mi_rol() = 'admin');
+create policy p_del on public."pendientesDrive" for delete to authenticated using (public.mi_rol() = 'admin');
+
+-- config: todos leen, solo admin cambia
+create policy p_sel on public.config for select to authenticated using (public.mi_rol() is not null);
+create policy p_ins on public.config for insert to authenticated with check (public.mi_rol() = 'admin');
+create policy p_upd on public.config for update to authenticated using (public.mi_rol() = 'admin') with check (public.mi_rol() = 'admin');
+create policy p_del on public.config for delete to authenticated using (public.mi_rol() = 'admin');
+
+do $$ begin
+  begin execute 'alter publication supabase_realtime add table public."personalPrivado"'; exception when duplicate_object then null; end;
+end $$;
