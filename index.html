@@ -555,7 +555,7 @@ function vPersonal() {
   const form = p => `<div class="card"><h3>${p.id ? "Ficha de " + esc(p.nombre) : "Nueva persona"}</h3>
     <form class="f" id="fPer">
       <label class="fl wide">Nombre<input id="pe_nom" name="nombre" required value="${esc(p.nombre || "")}"></label>
-      <label class="fl">Sector<select id="pe_sec" name="sector">${opts(["Cocina","Sala","Barra","Limpieza","Caja","Otros"], p.sector || "Cocina")}</select></label>
+      <label class="fl">Sector<select id="pe_sec" name="sector">${opts(["Cocina","Sala","Barra","Limpieza","Caja","Administración","Otros"], p.sector || "Cocina")}</select></label>
       <label class="fl">Cargo<input id="pe_car" name="cargo" value="${esc(p.cargo || "")}"></label>
       <label class="fl">Fecha de alta<input id="pe_alta" name="alta" type="date" value="${esc(p.alta || "")}"></label>
       <label class="fl">Fecha de baja<input id="pe_baja" name="baja" type="date" value="${esc(p.baja || "")}"></label>
@@ -577,7 +577,7 @@ function vPersonal() {
     <div class="toolbar"><h3 style="margin:0">${n} personas activas</h3>
       <div class="btns" style="flex:1;justify-content:flex-end">
         <input id="perQ" type="search" placeholder="Buscar nombre o cargo" value="${esc(ui.personalQ)}" aria-label="Buscar">
-        <select id="perSec" aria-label="Sector"><option value="">Todos los sectores</option>${[...new Set(["Sala","Cocina","Barra","Limpieza","Caja",...S.personal.map(p => p.sector).filter(Boolean)])].map(x => `<option value="${esc(x)}" ${ui.personalSector === x ? "selected" : ""}>${esc(x === "Sala" ? "Salón" : x)} (${S.personal.filter(p => p.sector === x && (ui.personalEstado === "todos" || (ui.personalEstado === "bajas") === (estadoPersona(p) === "Baja"))).length})</option>`).join("")}${S.personal.some(p => !p.sector) ? `<option value="__sin" ${ui.personalSector === "__sin" ? "selected" : ""}>Sin sector</option>` : ""}</select>
+        <select id="perSec" aria-label="Sector"><option value="">Todos los sectores</option>${[...new Set(["Sala","Cocina","Barra","Limpieza","Caja","Administración",...S.personal.map(p => p.sector).filter(Boolean)])].map(x => `<option value="${esc(x)}" ${ui.personalSector === x ? "selected" : ""}>${esc(x === "Sala" ? "Salón" : x)} (${S.personal.filter(p => p.sector === x && (ui.personalEstado === "todos" || (ui.personalEstado === "bajas") === (estadoPersona(p) === "Baja"))).length})</option>`).join("")}${S.personal.some(p => !p.sector) ? `<option value="__sin" ${ui.personalSector === "__sin" ? "selected" : ""}>Sin sector</option>` : ""}</select>
         ${priv("sueldos") ? `<label class="small" style="display:flex;gap:6px;align-items:center;white-space:nowrap"><input type="checkbox" id="perOcultar" ${ui.ocultarSueldos ? "checked" : ""} style="width:auto"> Ocultar sueldos</label>` : ""}
         <select id="perEst" aria-label="Estado">${[["activos","Activos"],["bajas","Bajas"],["todos","Todos"]].map(([k,l]) => `<option value="${k}" ${ui.personalEstado === k ? "selected" : ""}>${l}</option>`).join("")}</select>
         <button class="b primary" data-act="newPer" ${roOnly()}>Agregar</button></div></div>
