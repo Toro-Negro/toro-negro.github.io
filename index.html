@@ -237,6 +237,22 @@ function fpRefresh() {
   const simple = !ui.formasDraft.length; document.querySelectorAll(".pgSimple").forEach(x => x.hidden = !simple);
   if (!simple) document.querySelectorAll(".pgPag").forEach(x => x.hidden = true);
 }
+function mesSiguiente(f) {
+  const [y, m, d] = f.split("-").map(Number);
+  const ult = (yy, mm) => new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+  const ny = m === 12 ? y + 1 : y, nm = m === 12 ? 1 : m + 1;
+  const nd = d === ult(y, m) ? ult(ny, nm) : Math.min(d, ult(ny, nm));
+  return `${ny}-${String(nm).padStart(2, "0")}-${String(nd).padStart(2, "0")}`;
+}
+async function crearSiguiente(pg) {
+  if (pg.repetir !== "mensual" || !pg.vencimiento) return;
+  const v = mesSiguiente(pg.vencimiento);
+  if (S.pagos.some(x => x.id !== pg.id && norm(x.proveedor) === norm(pg.proveedor) && x.vencimiento === v)) return;
+  const fs = formasDe(pg);
+  const monto = fs.length && pg.monto == null ? sumaFormas(fs) : pg.monto;
+  if (await save("pagos", null, {proveedor: pg.proveedor, tipo: pg.tipo, concepto: pg.concepto, monto, moneda: pg.moneda, vencimiento: v, estado: "Pendiente", notas: pg.notas || "", fechaPago: null, pagadoDesde: null, formas: [], repetir: "mensual"}))
+    toast("Se creó el pago del mes siguiente, vence el " + fmtD(v));
+}
 async function quitarSalidas(pagoId) {
   try {
     for (const m of S.movimientos.filter(x => x.pagoId === pagoId)) await db.collection("movimientos").doc(m.id).delete();
@@ -592,6 +608,7 @@ function vPagos() {
       <label class="fl">Monto<input id="pg_monto" name="monto" inputmode="decimal" value="${e.monto ?? ""}" placeholder="Vacío si falta definir"></label>
       <label class="fl">Moneda<select id="pg_mon" name="moneda">${opts(["$","US$"], e.moneda || "$")}</select></label>
       <label class="fl">Vencimiento<input id="pg_venc" name="vencimiento" type="date" value="${esc(e.vencimiento || "")}"></label>
+      <label class="fl">Se repite<select id="pg_rep" name="repetir"><option value="" ${e.repetir ? "" : "selected"}>No, es un pago único</option><option value="mensual" ${e.repetir === "mensual" ? "selected" : ""}>Todos los meses</option></select></label>
       <label class="fl pgSimple" ${fd.length ? "hidden" : ""}>Estado<select id="pg_est" name="estado">${opts(["Pendiente","Pagado"], e.estado || "Pendiente")}</select></label>
       <label class="fl pgPag" ${e.estado === "Pagado" && !fd.length ? "" : "hidden"}>Fecha de pago<input id="pg_fpag" name="fechaPago" type="date" value="${esc(e.fechaPago || today())}"></label>
       <label class="fl pgPag" ${e.estado === "Pagado" && !fd.length ? "" : "hidden"}>¿De dónde salió la plata?<select id="pg_desde" name="pagadoDesde">${desdes().map(x => `<option value="${esc(x)}" ${(e.pagadoDesde || "Fondo de dueños") === x ? "selected" : ""}>${esc(desdeLbl(x))}</option>`).join("")}<option value="__nuevo">+ Agregar otra forma de pago…</option></select></label>
@@ -607,7 +624,7 @@ function vPagos() {
   </div>
   <div class="card">
     <div class="toolbar"><h3 style="margin:0">Pagos</h3><select id="pgEst" aria-label="Estado">${[["pendiente","Pendientes"],["pagado","Pagados"],["todos","Todos"]].map(([k,l]) => `<option value="${k}" ${ui.pagosEstado === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
-    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Vence</th><th>Proveedor</th><th class="n">Monto</th><th></th></tr></thead><tbody>${list.map(p => `<tr class="click" data-act="editPago" data-id="${p.id}"><td>${p.estado === "Pagado" ? `<span class="pill good">Pagado</span>` : vencPill(p.vencimiento)}</td><td>${esc(p.proveedor)} <span class="muted small">· ${esc(p.tipo || "")}</span><div class="muted small">${esc([p.concepto, p.notas].filter(Boolean).join(" · "))}</div>${formasDe(p).length ? `<div class="small">${esc(formasTxt(p))}</div>` : ""}</td><td class="n">${p.monto == null ? '<span class="pill warn">a definir</span>' : money(p.monto, p.moneda)}${formasDe(p).length && p.estado !== "Pagado" ? `<div class="muted small">falta ${money(restante(p), p.moneda)}</div>` : ""}</td><td class="n">${p.estado !== "Pagado" && formasDe(p).length ? `<button class="b small" type="button" data-act="editPago" data-id="${p.id}">Ver formas</button>` : p.estado !== "Pagado" ? (ui.pagando === p.id ? `<div class="small muted" style="margin-bottom:4px">¿De dónde sale la plata?</div><div class="btns" style="justify-content:flex-end"><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Fondo de dueños">Fondo de dueños</button><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Retiros de caja">Retiros de caja</button>${desdes().slice(2).map(x => `<button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="${esc(x)}">${esc(desdeLbl(x))}</button>`).join("")}<button class="b small" data-act="editPago" data-id="${p.id}" data-nuevo="1">+ Otra forma…</button><button class="b small" data-act="pagarCancel">Cancelar</button></div>` : `<button class="b small" data-act="pagar" data-id="${p.id}" ${roOnly(3)} ${p.monto == null ? "disabled title=\"Primero poné el monto\"" : ""}>Marcar pagado</button>`) : `<span class="muted small">${esc(p.pagadoDesde ? desdeLbl(p.pagadoDesde) : "")}${p.fechaPago ? "<br>" + fmtD(p.fechaPago) : ""}</span><div><button class="b small" type="button" data-act="editPago" data-id="${p.id}">Ver / editar</button></div>`}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay pagos en esta lista.</div>`}
+    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Vence</th><th>Proveedor</th><th class="n">Monto</th><th></th></tr></thead><tbody>${list.map(p => `<tr class="click" data-act="editPago" data-id="${p.id}"><td>${p.estado === "Pagado" ? `<span class="pill good">Pagado</span>` : vencPill(p.vencimiento)}</td><td>${esc(p.proveedor)} <span class="muted small">· ${esc(p.tipo || "")}${p.repetir === "mensual" ? " · todos los meses" : ""}</span><div class="muted small">${esc([p.concepto, p.notas].filter(Boolean).join(" · "))}</div>${formasDe(p).length ? `<div class="small">${esc(formasTxt(p))}</div>` : ""}</td><td class="n">${p.monto == null ? '<span class="pill warn">a definir</span>' : money(p.monto, p.moneda)}${formasDe(p).length && p.estado !== "Pagado" ? `<div class="muted small">falta ${money(restante(p), p.moneda)}</div>` : ""}</td><td class="n">${p.estado !== "Pagado" && formasDe(p).length ? `<button class="b small" type="button" data-act="editPago" data-id="${p.id}">Ver formas</button>` : p.estado !== "Pagado" ? (ui.pagando === p.id ? `<div class="small muted" style="margin-bottom:4px">¿De dónde sale la plata?</div><div class="btns" style="justify-content:flex-end"><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Fondo de dueños">Fondo de dueños</button><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Retiros de caja">Retiros de caja</button>${desdes().slice(2).map(x => `<button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="${esc(x)}">${esc(desdeLbl(x))}</button>`).join("")}<button class="b small" data-act="editPago" data-id="${p.id}" data-nuevo="1">+ Otra forma…</button><button class="b small" data-act="pagarCancel">Cancelar</button></div>` : `<button class="b small" data-act="pagar" data-id="${p.id}" ${roOnly(3)} ${p.monto == null ? "disabled title=\"Primero poné el monto\"" : ""}>Marcar pagado</button>`) : `<span class="muted small">${esc(p.pagadoDesde ? desdeLbl(p.pagadoDesde) : "")}${p.fechaPago ? "<br>" + fmtD(p.fechaPago) : ""}</span><div><button class="b small" type="button" data-act="editPago" data-id="${p.id}">Ver / editar</button></div>`}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay pagos en esta lista.</div>`}
   </div>`;
 }
 
@@ -679,7 +696,7 @@ document.addEventListener("click", async ev => {
       const pg = S.pagos.find(x => x.id === id); if (!pg || pg.monto == null) break;
       const desde = el.dataset.desde;
       const ok = await registrarSalida(pg, desde, today());
-      if (ok && await patch("pagos", id, {estado: "Pagado", fechaPago: today(), pagadoDesde: desde})) { ui.pagando = null; toast(desde === "Fondo de dueños" || desde === "Retiros de caja" ? "Pagado y descontado de " + desde : "Marcado como pagado (" + desdeLbl(desde) + ")"); render(); }
+      if (ok && await patch("pagos", id, {estado: "Pagado", fechaPago: today(), pagadoDesde: desde})) { ui.pagando = null; toast(desde === "Fondo de dueños" || desde === "Retiros de caja" ? "Pagado y descontado de " + desde : "Marcado como pagado (" + desdeLbl(desde) + ")"); render(); await crearSiguiente(pg); }
       break; }
     case "driveOk": if (await patch("pendientesDrive", id, {resuelto: true, resueltoFecha: today()})) toast("Marcado como cargado. Se puede deshacer abajo"); break;
     case "driveUndo": if (await patch("pendientesDrive", id, {resuelto: false})) toast("Volvió a pendientes"); break;
@@ -731,7 +748,7 @@ document.addEventListener("submit", async ev => {
     if (formas.length) { const todas = formas.every(f => f.hecha); d.estado = todas ? "Pagado" : "Pendiente"; d.pagadoDesde = todas ? "Varias formas" : ""; d.fechaPago = todas ? formas.map(f => f.fecha || today()).sort().pop() : ""; }
     const pagado = d.estado === "Pagado";
     if (pagado && d.pagadoDesde === "__nuevo") { d.pagadoDesde = (d.desdeNuevo || "").trim(); if (!d.pagadoDesde) { toast("Escribí el nombre de la forma de pago"); return; } }
-    const rec = {proveedor: d.proveedor.trim(), tipo: d.tipo, concepto: d.concepto.trim(), monto: numIn(d.monto), moneda: d.moneda, vencimiento: d.vencimiento || null, estado: d.estado, notas: d.notas.trim(), fechaPago: pagado ? (d.fechaPago || today()) : null, pagadoDesde: pagado ? d.pagadoDesde : null, formas};
+    const rec = {proveedor: d.proveedor.trim(), tipo: d.tipo, concepto: d.concepto.trim(), monto: numIn(d.monto), moneda: d.moneda, vencimiento: d.vencimiento || null, estado: d.estado, notas: d.notas.trim(), fechaPago: pagado ? (d.fechaPago || today()) : null, pagadoDesde: pagado ? d.pagadoDesde : null, formas, repetir: d.repetir || null};
     if (formas.length) { const px = proxForma(rec); if (px?.fecha) rec.vencimiento = px.fecha; }
     if (pagado && rec.monto == null) { toast("Poné el monto para marcarlo pagado"); return; }
     const old = S.pagos.find(x => x.id === ui.editing.pago);
@@ -745,7 +762,8 @@ document.addEventListener("submit", async ev => {
       for (const [pg, desde, fecha] of nuevas) if (!(await registrarSalida(pg, desde, fecha))) return;
     }
     const dif = formas.length && rec.monto != null ? Math.round((rec.monto - sumaFormas(formas)) * 100) / 100 : 0;
-    if (await save("pagos", id, rec)) { toast(dif ? "Guardado. Ojo: las formas de pago no suman el total" : "Guardado"); ui.editing.pago = null; ui.formasFor = null; render(); }
+    if (await save("pagos", id, rec)) { toast(dif ? "Guardado. Ojo: las formas de pago no suman el total" : "Guardado"); ui.editing.pago = null; ui.formasFor = null; render();
+      if (pagado && old?.estado !== "Pagado") await crearSiguiente({...rec, id}); }
   } else if (f.id === "fCfg") {
     const cot = numIn(d.cotizacion), dias = numIn(d.diasAcreditacion);
     if (!cot || cot <= 0) { toast("Poné una cotización válida"); return; }

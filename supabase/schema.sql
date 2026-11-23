@@ -294,3 +294,6 @@ end $$;
 
 -- formas de pago dentro de un pago (23/11/2026)
 alter table public.pagos add column if not exists formas jsonb not null default '[]'::jsonb;
+
+-- pagos que se repiten todos los meses (23/11/2026)
+alter table public.pagos add column if not exists repetir text;
