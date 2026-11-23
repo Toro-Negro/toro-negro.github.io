@@ -291,3 +291,6 @@ create policy p_del on public.config for delete to authenticated using (public.m
 do $$ begin
   begin execute 'alter publication supabase_realtime add table public."personalPrivado"'; exception when duplicate_object then null; end;
 end $$;
+
+-- formas de pago dentro de un pago (23/11/2026)
+alter table public.pagos add column if not exists formas jsonb not null default '[]'::jsonb;
