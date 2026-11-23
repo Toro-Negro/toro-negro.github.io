@@ -138,7 +138,7 @@ const S = {cfg: {cotizacion: 41, diasAcreditacion: 15}, ready: {}, canWrite: tru
 COLS.forEach(c => S[c] = []);
 let db = null, dl = true;
 let tab = "resumen";
-const ui = {editing: {}, propDraft: {}, formasDraft: null, formasFor: null, personalQ: "", personalEstado: "activos", pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
+const ui = {editing: {}, propDraft: {}, formasDraft: null, formasFor: null, personalQ: "", personalEstado: "activos", personalSector: "", pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
 
 const TABS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retiros de caja"],["adelantos","Adelantos"],["propinas","Propinas"],["personal","Personal"],["pagos","Pagos y vencimientos"],["ajustes","Ajustes"],["usuarios","Usuarios"]];
 
@@ -548,13 +548,14 @@ function vPersonal() {
     const est = estadoPersona(p);
     if (ui.personalEstado === "activos" && est === "Baja") return false;
     if (ui.personalEstado === "bajas" && est !== "Baja") return false;
+    if (ui.personalSector && (ui.personalSector === "__sin" ? !!p.sector : p.sector !== ui.personalSector)) return false;
     return !q || [p.nombre, p.cargo, p.sector].join(" ").toLowerCase().includes(q);
   });
   const n = S.personal.filter(p => estadoPersona(p) !== "Baja").length;
   const form = p => `<div class="card"><h3>${p.id ? "Ficha de " + esc(p.nombre) : "Nueva persona"}</h3>
     <form class="f" id="fPer">
       <label class="fl wide">Nombre<input id="pe_nom" name="nombre" required value="${esc(p.nombre || "")}"></label>
-      <label class="fl">Sector<select id="pe_sec" name="sector">${opts(["Cocina","Sala","Barra","Caja","Otros"], p.sector || "Cocina")}</select></label>
+      <label class="fl">Sector<select id="pe_sec" name="sector">${opts(["Cocina","Sala","Barra","Limpieza","Caja","Otros"], p.sector || "Cocina")}</select></label>
       <label class="fl">Cargo<input id="pe_car" name="cargo" value="${esc(p.cargo || "")}"></label>
       <label class="fl">Fecha de alta<input id="pe_alta" name="alta" type="date" value="${esc(p.alta || "")}"></label>
       <label class="fl">Fecha de baja<input id="pe_baja" name="baja" type="date" value="${esc(p.baja || "")}"></label>
@@ -576,6 +577,7 @@ function vPersonal() {
     <div class="toolbar"><h3 style="margin:0">${n} personas activas</h3>
       <div class="btns" style="flex:1;justify-content:flex-end">
         <input id="perQ" type="search" placeholder="Buscar nombre o cargo" value="${esc(ui.personalQ)}" aria-label="Buscar">
+        <select id="perSec" aria-label="Sector"><option value="">Todos los sectores</option>${[...new Set(["Sala","Cocina","Barra","Limpieza","Caja",...S.personal.map(p => p.sector).filter(Boolean)])].map(x => `<option value="${esc(x)}" ${ui.personalSector === x ? "selected" : ""}>${esc(x === "Sala" ? "Salón" : x)} (${S.personal.filter(p => p.sector === x && (ui.personalEstado === "todos" || (ui.personalEstado === "bajas") === (estadoPersona(p) === "Baja"))).length})</option>`).join("")}${S.personal.some(p => !p.sector) ? `<option value="__sin" ${ui.personalSector === "__sin" ? "selected" : ""}>Sin sector</option>` : ""}</select>
         <select id="perEst" aria-label="Estado">${[["activos","Activos"],["bajas","Bajas"],["todos","Todos"]].map(([k,l]) => `<option value="${k}" ${ui.personalEstado === k ? "selected" : ""}>${l}</option>`).join("")}</select>
         <button class="b primary" data-act="newPer" ${roOnly()}>Agregar</button></div></div>
     ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Nombre</th><th>Sector</th><th>Alta</th>${priv("sueldos") ? `<th class="n">Sueldo líquido</th>` : ""}<th class="n">Adelantos</th><th>Estado</th></tr></thead><tbody>${list.map(p => { const est = estadoPersona(p); const ad = adelPendDesc(p.nombre); return `<tr class="click" data-act="editPer" data-id="${p.id}"><td>${esc(p.nombre)}<div class="muted small">${esc(p.cargo || "")}</div></td><td>${esc(p.sector || "")}</td><td>${fmtD(p.alta)}</td>${priv("sueldos") ? `<td class="n">${p.sueldoLiquido ? pesos(p.sueldoLiquido) : p.laudo ? "Laudo" : "—"}</td>` : ""}<td class="n">${ad ? pesos(ad) : "—"}</td><td><span class="pill ${est === "Activo" ? "good" : est === "Baja" ? "mute" : "acc"}">${est}${est === "Baja" ? " " + fmtD(p.baja).slice(0,5) : ""}</span></td></tr>`; }).join("")}</tbody></table></div>` : `<div class="empty">No hay personas que coincidan.</div>`}
@@ -782,6 +784,7 @@ document.addEventListener("change", async ev => {
   else if (t.id === "m_cat") { $("#m_catNuevaL").hidden = t.value !== "__nuevo"; if (t.value === "__nuevo") $("#m_catNueva").focus(); }
   else if (t.id === "movSemana") { ui.movSemana = t.value; render(); }
   else if (t.id === "perEst") { ui.personalEstado = t.value; render(); }
+  else if (t.id === "perSec") { ui.personalSector = t.value; render(); }
   else if (t.id === "pgEst") { ui.pagosEstado = t.value; render(); }
   else if (t.id === "semPick" && t.value) { ui.semana = monday(t.value); render(); }
   else if (t.dataset.prop) {
