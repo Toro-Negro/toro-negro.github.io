@@ -138,7 +138,7 @@ const S = {cfg: {cotizacion: 41, diasAcreditacion: 15}, ready: {}, canWrite: tru
 COLS.forEach(c => S[c] = []);
 let db = null, dl = true;
 let tab = "resumen";
-const ui = {editing: {}, propDraft: {}, formasDraft: null, formasFor: null, personalQ: "", personalEstado: "activos", personalSector: "", pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
+const ui = {editing: {}, propDraft: {}, formasDraft: null, formasFor: null, personalQ: "", personalEstado: "activos", personalSector: "", ocultarSueldos: true, pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
 
 const TABS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retiros de caja"],["adelantos","Adelantos"],["propinas","Propinas"],["personal","Personal"],["pagos","Pagos y vencimientos"],["ajustes","Ajustes"],["usuarios","Usuarios"]];
 
@@ -578,9 +578,10 @@ function vPersonal() {
       <div class="btns" style="flex:1;justify-content:flex-end">
         <input id="perQ" type="search" placeholder="Buscar nombre o cargo" value="${esc(ui.personalQ)}" aria-label="Buscar">
         <select id="perSec" aria-label="Sector"><option value="">Todos los sectores</option>${[...new Set(["Sala","Cocina","Barra","Limpieza","Caja",...S.personal.map(p => p.sector).filter(Boolean)])].map(x => `<option value="${esc(x)}" ${ui.personalSector === x ? "selected" : ""}>${esc(x === "Sala" ? "Salón" : x)} (${S.personal.filter(p => p.sector === x && (ui.personalEstado === "todos" || (ui.personalEstado === "bajas") === (estadoPersona(p) === "Baja"))).length})</option>`).join("")}${S.personal.some(p => !p.sector) ? `<option value="__sin" ${ui.personalSector === "__sin" ? "selected" : ""}>Sin sector</option>` : ""}</select>
+        ${priv("sueldos") ? `<label class="small" style="display:flex;gap:6px;align-items:center;white-space:nowrap"><input type="checkbox" id="perOcultar" ${ui.ocultarSueldos ? "checked" : ""} style="width:auto"> Ocultar sueldos</label>` : ""}
         <select id="perEst" aria-label="Estado">${[["activos","Activos"],["bajas","Bajas"],["todos","Todos"]].map(([k,l]) => `<option value="${k}" ${ui.personalEstado === k ? "selected" : ""}>${l}</option>`).join("")}</select>
         <button class="b primary" data-act="newPer" ${roOnly()}>Agregar</button></div></div>
-    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Nombre</th><th>Sector</th><th>Alta</th>${priv("sueldos") ? `<th class="n">Sueldo líquido</th>` : ""}<th class="n">Adelantos</th><th>Estado</th></tr></thead><tbody>${list.map(p => { const est = estadoPersona(p); const ad = adelPendDesc(p.nombre); return `<tr class="click" data-act="editPer" data-id="${p.id}"><td>${esc(p.nombre)}<div class="muted small">${esc(p.cargo || "")}</div></td><td>${esc(p.sector || "")}</td><td>${fmtD(p.alta)}</td>${priv("sueldos") ? `<td class="n">${p.sueldoLiquido ? pesos(p.sueldoLiquido) : p.laudo ? "Laudo" : "—"}</td>` : ""}<td class="n">${ad ? pesos(ad) : "—"}</td><td><span class="pill ${est === "Activo" ? "good" : est === "Baja" ? "mute" : "acc"}">${est}${est === "Baja" ? " " + fmtD(p.baja).slice(0,5) : ""}</span></td></tr>`; }).join("")}</tbody></table></div>` : `<div class="empty">No hay personas que coincidan.</div>`}
+    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Nombre</th><th>Sector</th><th>Alta</th>${priv("sueldos") ? `<th class="n">Sueldo líquido</th>` : ""}<th class="n">Adelantos</th><th>Estado</th></tr></thead><tbody>${list.map(p => { const est = estadoPersona(p); const ad = adelPendDesc(p.nombre); return `<tr class="click" data-act="editPer" data-id="${p.id}"><td>${esc(p.nombre)}<div class="muted small">${esc(p.cargo || "")}</div></td><td>${esc(p.sector || "")}</td><td>${fmtD(p.alta)}</td>${priv("sueldos") ? `<td class="n">${ui.ocultarSueldos ? "•••••" : p.sueldoLiquido ? pesos(p.sueldoLiquido) : p.laudo ? "Laudo" : "—"}</td>` : ""}<td class="n">${ad ? pesos(ad) : "—"}</td><td><span class="pill ${est === "Activo" ? "good" : est === "Baja" ? "mute" : "acc"}">${est}${est === "Baja" ? " " + fmtD(p.baja).slice(0,5) : ""}</span></td></tr>`; }).join("")}</tbody></table></div>` : `<div class="empty">No hay personas que coincidan.</div>`}
   </div>`;
 }
 
@@ -785,6 +786,7 @@ document.addEventListener("change", async ev => {
   else if (t.id === "movSemana") { ui.movSemana = t.value; render(); }
   else if (t.id === "perEst") { ui.personalEstado = t.value; render(); }
   else if (t.id === "perSec") { ui.personalSector = t.value; render(); }
+  else if (t.id === "perOcultar") { ui.ocultarSueldos = t.checked; render(); }
   else if (t.id === "pgEst") { ui.pagosEstado = t.value; render(); }
   else if (t.id === "semPick" && t.value) { ui.semana = monday(t.value); render(); }
   else if (t.dataset.prop) {
