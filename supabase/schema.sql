@@ -297,3 +297,7 @@ alter table public.pagos add column if not exists formas jsonb not null default 
 
 -- pagos que se repiten todos los meses (23/11/2026)
 alter table public.pagos add column if not exists repetir text;
+
+-- adelantos unidos a la ficha de la persona (24/11/2026)
+alter table public.adelantos add column if not exists "personaId" text references public.personal(id) on delete set null;
+update public.adelantos a set "personaId" = p.id from public.personal p where p.nombre = a.empleado and a."personaId" is null;
