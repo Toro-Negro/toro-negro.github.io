@@ -127,7 +127,7 @@ const nextMonday = s => { const d = parseISO(s); const w = (d.getDay() + 6) % 7;
 const DIAS = ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
 const dia = s => DIAS[parseISO(s).getDay()];
 const num = v => { if (v === "" || v == null) return null; const n = Number(String(v).replace(/\./g, "").replace(",", ".")); return isNaN(n) ? null : n; };
-const numIn = v => { if (v === "" || v == null) return null; const s = String(v).trim(); const n = Number(s.includes(",") ? s.replace(/\./g, "").replace(",", ".") : s); return isNaN(n) ? null : n; };
+const numIn = v => { if (v === "" || v == null) return null; const s = String(v).trim().replace(/^\$\s*/, "").replace(/\s/g, ""); const n = Number(s.includes(",") ? s.replace(/\./g, "").replace(",", ".") : /^\d{1,3}(\.\d{3})+$/.test(s) ? s.replace(/\./g, "") : s); return isNaN(n) ? null : n; };
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 let toastT;
 const toast = msg => { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2200); };
@@ -555,7 +555,7 @@ function vPersonal() {
   const form = p => `<div class="card"><h3>${p.id ? "Ficha de " + esc(p.nombre) : "Nueva persona"}</h3>
     <form class="f" id="fPer">
       <label class="fl wide">Nombre<input id="pe_nom" name="nombre" required value="${esc(p.nombre || "")}"></label>
-      <label class="fl">Sector<select id="pe_sec" name="sector">${opts(["Cocina","Sala","Barra","Limpieza","Caja","Administración","Otros"], p.sector || "Cocina")}</select></label>
+      <label class="fl">Sector<select id="pe_sec" name="sector">${opts([...new Set(["Cocina","Sala","Barra","Limpieza","Caja","Administración","Otros", ...(p.sector ? [p.sector] : [])])], p.sector || "Cocina")}</select></label>
       <label class="fl">Cargo<input id="pe_car" name="cargo" value="${esc(p.cargo || "")}"></label>
       <label class="fl">Fecha de alta<input id="pe_alta" name="alta" type="date" value="${esc(p.alta || "")}"></label>
       <label class="fl">Fecha de baja<input id="pe_baja" name="baja" type="date" value="${esc(p.baja || "")}"></label>
