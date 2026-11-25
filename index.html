@@ -187,6 +187,55 @@ function semanaPropina(lunes) {
   const acred = addDays(dias[6], S.cfg.diasAcreditacion || 15);
   return {dias: rows, total, acred, entrega: nextMonday(acred)};
 }
+const PDF_CAMPOS = [
+  ["nombre", "Nombre", null], ["sector", "Sector", null], ["cargo", "Cargo", null], ["alta", "Ingreso", null], ["baja", "Baja", null],
+  ["horario", "Horario", null], ["laudo", "Laudo", null], ["contrato", "Contrato", null],
+  ["nacimiento", "Nacimiento", "documentos"], ["documento", "Cédula", "documentos"], ["telefono", "Teléfono", "documentos"],
+  ["email", "Email", "contacto"], ["domicilio", "Dirección", "contacto"], ["emergencia", "Emergencia", "contacto"],
+  ["banco", "Banco", "cuentas"], ["cuenta", "Cuenta", "cuentas"],
+  ["sueldoLiquido", "Sueldo líquido", "sueldos"], ["sueldoNominal", "Sueldo nominal", "sueldos"],
+  ["carneSalud", "Carné de salud", null], ["carneManipulador", "Carné manipulador", null], ["notas", "Notas", null]];
+const pdfValor = (p, k) => {
+  if (["alta", "baja", "nacimiento", "carneSalud", "carneManipulador"].includes(k)) return p[k] ? fmtD(p[k]) : "";
+  if (k === "sector") return p.sector === "Sala" ? "Salón" : (p.sector || "");
+  if (k === "laudo") return p.laudo ? "Sí" : "No";
+  if (k === "emergencia") return [p.emergenciaNombre, p.emergenciaTel].filter(Boolean).join(" · ");
+  if (k === "sueldoLiquido" || k === "sueldoNominal") return p[k] ? pesos(p[k]) : (k === "sueldoLiquido" && p.laudo ? "Laudo" : "");
+  return p[k] == null ? "" : String(p[k]);
+};
+const cargarScript = src => new Promise((ok, mal) => { if (document.querySelector(`script[src="${src}"]`)) return ok(); const sc = document.createElement("script"); sc.src = src; sc.onload = ok; sc.onerror = mal; document.head.appendChild(sc); });
+async function descargarPdfPersonal() {
+  const f = $("#fPdf"); if (!f) return;
+  const campos = PDF_CAMPOS.filter(([k, , g]) => (!g || priv(g)) && f.querySelector(`[name="c_${k}"]`)?.checked);
+  if (!campos.length) { toast("Tildá al menos un campo"); return; }
+  const sec = f.querySelector("[name=sector]").value, est = f.querySelector("[name=estado]").value;
+  const lista = sortBy(S.personal, "nombre").filter(p => (!sec || p.sector === sec) && (est === "todos" || (est === "bajas") === (estadoPersona(p) === "Baja")));
+  if (!lista.length) { toast("No hay personas con ese filtro"); return; }
+  toast("Armando el PDF…");
+  try {
+    await cargarScript("https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js");
+    await cargarScript("https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js");
+  } catch (e) { toast("No se pudo cargar el generador de PDF. Probá de nuevo."); return; }
+  const {jsPDF} = window.jspdf;
+  const doc = new jsPDF({orientation: campos.length > 6 ? "landscape" : "portrait", unit: "mm", format: "a4"});
+  const W = doc.internal.pageSize.getWidth();
+  const logo = document.querySelector("img.logo")?.src;
+  if (logo) { try { doc.addImage(logo, "JPEG", 14, 10, 22, 22 * 0.6); } catch (e) {} }
+  doc.setFont("helvetica", "bold"); doc.setFontSize(14);
+  const secTxt = sec ? (sec === "Sala" ? "Salón" : sec) : "Todos los sectores";
+  doc.text("Personal · " + secTxt, logo ? 40 : 14, 17);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(110);
+  doc.text(`${est === "activos" ? "Activos" : est === "bajas" ? "Bajas" : "Activos y bajas"} · ${lista.length} ${lista.length === 1 ? "persona" : "personas"} · ${fmtD(today())}`, logo ? 40 : 14, 23);
+  doc.setTextColor(0);
+  doc.autoTable({
+    startY: 30, head: [campos.map(([, l]) => l)], body: lista.map(p => campos.map(([k]) => pdfValor(p, k))),
+    styles: {fontSize: campos.length > 10 ? 7 : 8.5, cellPadding: 1.6, overflow: "linebreak"},
+    headStyles: {fillColor: [40, 36, 32], textColor: 255, fontStyle: "bold"},
+    alternateRowStyles: {fillColor: [246, 244, 240]}, margin: {left: 14, right: 14},
+    didDrawPage: d => { doc.setFontSize(8); doc.setTextColor(140); doc.text("Toro Negro · Caja y personal", 14, doc.internal.pageSize.getHeight() - 8); doc.text("Página " + doc.internal.getNumberOfPages(), W - 14, doc.internal.pageSize.getHeight() - 8, {align: "right"}); doc.setTextColor(0); }
+  });
+  doc.save(`personal_${(sec || "todos").toLowerCase().normalize("NFD").replace(/[^a-z0-9]+/g, "_")}_${today()}.pdf`);
+}
 const plegCard = (key, titulo, fijo) => fijo ? `<div class="card"><h3>${titulo}</h3>` : (ui.abiertos.has(key)
   ? `<div class="card"><button type="button" class="plegable" data-act="plegar" data-id="${key}" aria-expanded="true"><h3 style="margin:0">${titulo}</h3><span class="muted">▾</span></button>`
   : `<div class="card plegada"><button type="button" class="plegable" data-act="plegar" data-id="${key}" aria-expanded="false"><h3 style="margin:0">${titulo}</h3><span class="muted">▸</span></button>`);
@@ -694,7 +743,15 @@ function vPersonal() {
         <select id="perSec" aria-label="Sector"><option value="">Todos los sectores</option>${[...new Set(["Sala","Cocina","Barra","Limpieza","Caja","Administración",...S.personal.map(p => p.sector).filter(Boolean)])].map(x => `<option value="${esc(x)}" ${ui.personalSector === x ? "selected" : ""}>${esc(x === "Sala" ? "Salón" : x)} (${S.personal.filter(p => p.sector === x && (ui.personalEstado === "todos" || (ui.personalEstado === "bajas") === (estadoPersona(p) === "Baja"))).length})</option>`).join("")}${S.personal.some(p => !p.sector) ? `<option value="__sin" ${ui.personalSector === "__sin" ? "selected" : ""}>Sin sector</option>` : ""}</select>
         ${priv("sueldos") ? `<label class="small" style="display:flex;gap:6px;align-items:center;white-space:nowrap"><input type="checkbox" id="perOcultar" ${ui.ocultarSueldos ? "checked" : ""} style="width:auto"> Ocultar sueldos</label>` : ""}
         <select id="perEst" aria-label="Estado">${[["activos","Activos"],["bajas","Bajas"],["todos","Todos"]].map(([k,l]) => `<option value="${k}" ${ui.personalEstado === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+        <button class="b" type="button" data-act="pdfPer">${ui.pdfAbierto ? "Cerrar PDF" : "Descargar PDF"}</button>
         <button class="b primary" data-act="newPer" ${roOnly()}>Agregar</button></div></div>
+    ${ui.pdfAbierto ? `<form class="f" id="fPdf" style="margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px">
+      <div class="wide"><h3 style="margin:0">Descargar PDF del personal</h3><p class="muted small" style="margin:4px 0 0">Elegí el sector y los datos que querés que salgan. Los datos privados aparecen solo si tenés permiso para verlos.</p></div>
+      <label class="fl">Sector<select name="sector"><option value="">Todos los sectores</option>${[...new Set(["Sala","Cocina","Barra","Limpieza","Caja","Administración",...S.personal.map(p => p.sector).filter(Boolean)])].map(x => `<option value="${esc(x)}" ${ui.personalSector === x ? "selected" : ""}>${esc(x === "Sala" ? "Salón" : x)}</option>`).join("")}</select></label>
+      <label class="fl">Personas<select name="estado">${[["activos","Activos"],["bajas","Bajas"],["todos","Todos"]].map(([k,l]) => `<option value="${k}" ${ui.personalEstado === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      <div class="wide"><div class="small muted" style="margin-bottom:4px">Datos a incluir</div><div class="btns" style="gap:6px 14px">${PDF_CAMPOS.filter(([, , g]) => !g || priv(g)).map(([k, l]) => `<label class="small" style="display:flex;gap:6px;align-items:center;white-space:nowrap"><input type="checkbox" name="c_${k}" ${["nombre","sector","cargo","alta"].includes(k) ? "checked" : ""} style="width:auto"> ${l}</label>`).join("")}</div></div>
+      <div class="btns wide"><button class="b primary" type="button" data-act="pdfBajar">Descargar PDF</button><button class="b" type="button" data-act="pdfPer">Cancelar</button></div>
+    </form>` : ""}
     ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Nombre</th><th>Sector</th><th>Alta</th>${priv("sueldos") ? `<th class="n">Sueldo líquido</th>` : ""}<th class="n">Adelantos</th><th>Estado</th></tr></thead><tbody>${list.map(p => { const est = estadoPersona(p); const ad = adelPendDesc(p.nombre); return `<tr class="click" data-act="editPer" data-id="${p.id}"><td>${esc(p.nombre)}<div class="muted small">${esc(p.cargo || "")}</div></td><td>${esc(p.sector || "")}</td><td>${fmtD(p.alta)}</td>${priv("sueldos") ? `<td class="n">${ui.ocultarSueldos ? "•••••" : p.sueldoLiquido ? pesos(p.sueldoLiquido) : p.laudo ? "Laudo" : "—"}</td>` : ""}<td class="n">${ad ? pesos(ad) : "—"}</td><td><span class="pill ${est === "Activo" ? "good" : est === "Baja" ? "bad" : "acc"}">${est}${est === "Baja" ? " " + fmtD(p.baja).slice(0,5) : ""}</span>${p.baja && est !== "Baja" ? ` <span class="pill bad">Baja el ${fmtD(p.baja).slice(0,5)}</span>` : ""}${est !== "Baja" ? CARNES.map(([k, l]) => { const c = carneEst(p[k]); return c.alerta ? ` <span class="pill ${c.cls}" title="${esc(l + ": " + c.txt)}">${c.cls === "bad" ? "Carné vencido" : "Carné por vencer"}</span>` : ""; }).join("") : ""}</td></tr>`; }).join("")}</tbody></table></div>` : `<div class="empty">No hay personas que coincidan.</div>`}
   </div>`;
 }
@@ -867,6 +924,8 @@ document.addEventListener("click", async ev => {
     case "driveOk": if (await patch("pendientesDrive", id, {resuelto: true, resueltoFecha: today()})) toast("Marcado como cargado. Se puede deshacer abajo"); break;
     case "driveUndo": if (await patch("pendientesDrive", id, {resuelto: false})) toast("Volvió a pendientes"); break;
     case "exportJson": exportar("json"); break;
+    case "pdfPer": ui.pdfAbierto = !ui.pdfAbierto; render(); break;
+    case "pdfBajar": descargarPdfPersonal(); break;
     case "exportCsv": exportar("csv", id); break;
   }
 });
