@@ -93,6 +93,7 @@ tr.click:hover td{background:var(--surface-2)}
 .ficha .bloque{border:1px solid var(--line,#e5e2dc);border-radius:10px;padding:10px 12px;min-width:0}
 .ficha .bloque h3{margin:0 0 8px}.ficha dl{display:grid;grid-template-columns:auto 1fr;gap:5px 12px;margin:0}
 .ficha dt{color:var(--mute,#7a746c);font-size:.85em;padding-top:1px}.ficha dd .pill{white-space:normal;display:inline-block}.ficha dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.recien{margin-top:10px;padding:8px 10px;border-radius:8px;background:var(--good-soft,#e8f3ec)}
 .login{max-width:380px;margin:40px auto 0;display:grid;gap:12px}
 .login .logo-big{height:64px;width:auto;justify-self:center;border-radius:8px;background:#fff;padding:4px 8px}
 .who{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
@@ -144,7 +145,7 @@ const S = {cfg: {cotizacion: 41, diasAcreditacion: 15}, ready: {}, canWrite: tru
 COLS.forEach(c => S[c] = []);
 let db = null, dl = true;
 let tab = "resumen";
-const ui = {editing: {}, propDraft: {}, formasDraft: null, formasFor: null, gruposAbiertos: new Set(), adelPara: null, perEditar: false, bajaAbierta: null, bpsVer: false, personalQ: "", personalEstado: "activos", personalSector: "", ocultarSueldos: true, pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
+const ui = {editing: {}, propDraft: {}, formasDraft: null, formasFor: null, gruposAbiertos: new Set(), adelPara: null, perEditar: false, bajaAbierta: null, bpsVer: false, bpsRecien: [], personalQ: "", personalEstado: "activos", personalSector: "", ocultarSueldos: true, pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
 
 const TABS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retiros de caja"],["adelantos","Adelantos"],["propinas","Propinas"],["personal","Personal"],["pagos","Pagos y vencimientos"],["ajustes","Ajustes"],["usuarios","Usuarios"]];
 
@@ -348,7 +349,11 @@ const bpsPend = () => [
 async function marcarBps(pid, tipo, deshacer) {
   const {error} = await sb.rpc("marcar_bps", {p_persona: pid, p_tipo: tipo, p_deshacer: !!deshacer});
   if (error) { toast("No se pudo marcar: " + (error.message || "")); return; }
+  const per = S.personal.find(x => x.id === pid); if (per) { per[tipo + "Bps"] = deshacer ? null : today(); per[tipo + "BpsPor"] = deshacer ? null : (S.perfil?.nombre || ""); }
+  ui.bpsRecien = (ui.bpsRecien || []).filter(x => !(x.pid === pid && x.tipo === tipo));
+  if (!deshacer) ui.bpsRecien.unshift({pid, tipo});
   toast(deshacer ? "Volvió a pendientes" : "Marcada como procesada");
+  render();
 }
 function mergePriv() {
   const m = {}; (S.personalPrivado || []).forEach(r => { (m[r.persona] ||= {})[r.campo] = r.valor; });
@@ -644,7 +649,8 @@ function vPersonal() {
   const fila = (k, v) => v ? `<dt>${k}</dt><dd>${v}</dd>` : "";
   const bloque = (t, filas) => `<section class="bloque"><h3>${t}</h3>${filas.join("") ? `<dl>${filas.join("")}</dl>` : `<p class="muted small" style="margin:0">Sin datos cargados.</p>`}</section>`;
   const ver = p => { const est = estadoPersona(p);
-    const bpsTxt = (f, por, tipo) => f ? `${tipo} procesada el ${fmtD(f)}${por && !/^Carga inicial/.test(por) ? " por " + esc(por) : ""}` : `<span class="pill warn">${tipo} pendiente</span>`;
+    const bpsTxt = (f, por, tipo) => (f ? `${tipo} procesada el ${fmtD(f)}${por && !/^Carga inicial/.test(por) ? " por " + esc(por) : ""}` : `<span class="pill warn">${tipo} pendiente</span>`)
+      + (puedeBps() ? ` <button class="b small" type="button" data-act="${f ? "bpsUndo" : "bpsOk"}" data-tipo="${tipo.toLowerCase()}" data-id="${p.id}">${f ? "Volver a pendiente" : "Marcar procesada"}</button>` : "");
     const ped = s => s ? esc(s) : "";
     return `<div class="card ficha">
     <div class="toolbar"><div><h2 style="margin:0">${esc(p.nombre)}</h2><div class="muted small" style="margin-top:2px">${esc([p.sector === "Sala" ? "Salón" : p.sector, p.cargo].filter(Boolean).join(" · "))} <span class="pill ${est === "Activo" ? "good" : est === "Baja" ? "bad" : "acc"}">${est}</span></div></div>
@@ -669,6 +675,7 @@ function vPersonal() {
     ...S.personal.filter(p => p.altaBps && !/^Carga inicial/.test(p.altaBpsPor || "")).map(p => ({p, tipo: "alta", f: p.altaBps, por: p.altaBpsPor})),
     ...S.personal.filter(p => p.bajaBps && !/^Carga inicial/.test(p.bajaBpsPor || "")).map(p => ({p, tipo: "baja", f: p.bajaBps, por: p.bajaBpsPor}))].sort((a, b) => b.f.localeCompare(a.f)).slice(0, 15) : [];
   const bpsCard = !puedeBps() ? "" : `<div class="card"><div class="toolbar"><h3 style="margin:0">Altas y bajas pendientes de BPS: ${bp.length}</h3><button class="b small" type="button" data-act="bpsVer">${ui.bpsVer ? "Ocultar procesadas" : "Ver procesadas"}</button></div>
+    ${(() => { const rc = (ui.bpsRecien || []).map(({pid, tipo}) => ({p: S.personal.find(x => x.id === pid), tipo})).filter(({p, tipo}) => p && p[tipo + "Bps"]); return rc.length ? `<div class="recien"><strong class="small">Recién marcadas como procesadas</strong>${rc.map(({p, tipo}) => `<div class="btns" style="align-items:center;margin-top:4px"><span class="pill ${tipo === "alta" ? "good" : "bad"}">${tipo === "alta" ? "Alta" : "Baja"}</span> <span>${esc(p.nombre)}</span><button class="b small" type="button" data-act="bpsUndo" data-tipo="${tipo}" data-id="${p.id}">Deshacer</button></div>`).join("")}</div>` : ""; })()}
     ${bp.length ? `<div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th></th><th>Persona</th><th>Fecha</th><th>Datos</th><th></th></tr></thead><tbody>${bp.map(({p, tipo, fecha}) => `<tr><td><span class="pill ${tipo === "alta" ? "good" : "bad"}">${tipo === "alta" ? "Alta" : "Baja"}</span></td><td>${esc(p.nombre)}<div class="muted small">${esc([p.sector === "Sala" ? "Salón" : p.sector, p.cargo].filter(Boolean).join(" · "))}</div></td><td>${tipo === "alta" ? "Ingresa " : "Último día "}${fmtD(fecha)}</td><td class="small">${tipo === "baja" ? esc(p.bajaMotivo || "Sin motivo cargado") : esc([priv("documentos") && p.documento ? "CI " + p.documento : "", priv("documentos") && p.nacimiento ? "Nació " + fmtD(p.nacimiento) : "", priv("documentos") && p.telefono ? "Tel. " + p.telefono : "", priv("sueldos") ? (p.laudo ? "Laudo" : "") + (p.sueldoNominal ? " · nominal " + pesos(p.sueldoNominal) : "") : "", priv("cuentas") && p.cuenta ? "Cuenta " + p.cuenta : ""].filter(Boolean).join(" · "))}</td><td class="n"><button class="b small primary" type="button" data-act="bpsOk" data-tipo="${tipo}" data-id="${p.id}">Marcar procesada</button></td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay altas ni bajas pendientes.</div>`}
     ${ui.bpsVer ? (procesadas.length ? `<h3 style="margin:12px 0 4px">Procesadas</h3><div class="tbl-wrap"><table><tbody>${procesadas.map(({p, tipo, f, por}) => `<tr><td><span class="pill ${tipo === "alta" ? "good" : "bad"}">${tipo === "alta" ? "Alta" : "Baja"}</span></td><td>${esc(p.nombre)}</td><td class="small muted">Procesada el ${fmtD(f)} por ${esc(por || "")}</td><td class="n"><button class="b small" type="button" data-act="bpsUndo" data-tipo="${tipo}" data-id="${p.id}">Volver a pendiente</button></td></tr>`).join("")}</tbody></table></div>` : `<p class="muted small">Todavía no se marcó ninguna desde la app.</p>`) : ""}</div>`;
   return `
