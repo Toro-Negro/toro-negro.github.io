@@ -361,3 +361,20 @@ $$;
 
 -- Hora de cada arqueo (25/11/2026)
 alter table public.arqueos add column if not exists creado timestamptz default now();
+
+-- Temas internos (25/11/2026): cosas a resolver que no son pagos
+create table if not exists public.temas (
+  id text primary key default gen_random_uuid()::text,
+  titulo text not null, detalle text, responsable text, "fechaLimite" date,
+  estado text not null default 'Abierto' check (estado in ('Abierto','Resuelto')), "resueltoFecha" date,
+  creado timestamptz default now(), actualizado timestamptz default now()
+);
+alter table public.temas enable row level security;
+grant select, insert, update, delete on public.temas to authenticated;
+drop policy if exists p_sel on public.temas; drop policy if exists p_ins on public.temas;
+drop policy if exists p_upd on public.temas; drop policy if exists p_del on public.temas;
+create policy p_sel on public.temas for select to authenticated using (public.nivel('temas') >= 1);
+create policy p_ins on public.temas for insert to authenticated with check (public.nivel('temas') >= 2);
+create policy p_upd on public.temas for update to authenticated using (public.nivel('temas') >= 3) with check (public.nivel('temas') >= 3);
+create policy p_del on public.temas for delete to authenticated using (public.nivel('temas') >= 3);
+do $$ begin execute 'alter publication supabase_realtime add table public.temas'; exception when duplicate_object then null; end $$;

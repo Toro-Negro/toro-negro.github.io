@@ -142,14 +142,14 @@ let toastT;
 const toast = msg => { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2200); };
 
 /* ---------- estado ---------- */
-const COLS = ["personal","personalPrivado","movimientos","adelantos","cajaFuerte","arqueos","propinas","semanasPropina","pagos","pendientesDrive"];
+const COLS = ["personal","personalPrivado","movimientos","adelantos","cajaFuerte","arqueos","propinas","semanasPropina","pagos","pendientesDrive","temas"];
 const S = {cfg: {cotizacion: 41, diasAcreditacion: 15}, ready: {}, canWrite: true};
 COLS.forEach(c => S[c] = []);
 let db = null, dl = true;
 let tab = "resumen";
 const ui = {editing: {}, propDraft: {}, formasDraft: null, formasFor: null, gruposAbiertos: new Set(), abiertos: new Set(), adelPara: null, perEditar: false, bajaAbierta: null, bpsVer: false, bpsRecien: [], personalQ: "", personalEstado: "activos", personalSector: "", ocultarSueldos: true, pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
 
-const TABS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retiros de caja"],["adelantos","Adelantos"],["propinas","Propinas"],["personal","Personal"],["pagos","Pagos y vencimientos"],["ajustes","Ajustes"],["usuarios","Usuarios"]];
+const TABS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retiros de caja"],["adelantos","Adelantos"],["propinas","Propinas"],["personal","Personal"],["pagos","Pagos y vencimientos"],["temas","Temas internos"],["ajustes","Ajustes"],["usuarios","Usuarios"]];
 
 /* ---------- cálculos ---------- */
 const enPesos = (monto, moneda, cot) => moneda === "US$" ? (monto || 0) * (cot || S.cfg.cotizacion) : (monto || 0);
@@ -315,7 +315,7 @@ function renderTabs() {
 }
 function render() {
   renderTabs();
-  const views = {resumen: vResumen, caja: vCaja, fuerte: vFuerte, adelantos: vAdelantos, propinas: vPropinas, personal: vPersonal, pagos: vPagos, ajustes: vAjustes, usuarios: vUsuarios};
+  const views = {resumen: vResumen, caja: vCaja, fuerte: vFuerte, adelantos: vAdelantos, propinas: vPropinas, personal: vPersonal, pagos: vPagos, temas: vTemas, ajustes: vAjustes, usuarios: vUsuarios};
   if (!S.perfil) return;
   const active = document.activeElement; const keepId = active && active.id;
   $("#main").innerHTML = views[tab]();
@@ -325,7 +325,7 @@ const empleadosOpts = (sel, soloActivos = true) => sortBy(S.personal, "nombre").
 const opts = (list, sel) => list.map(o => `<option ${o === sel ? "selected" : ""}>${esc(o)}</option>`).join("");
 const CATS = ["Aporte de socio","Venta","Jornal","Sueldo","Proveedor","Compra","Ajuste","Otro"];
 const NIV = {no: 0, ver: 1, cargar: 2, editar: 3};
-const SECS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retiros de caja"],["adelantos","Adelantos"],["propinas","Propinas"],["personal","Personal"],["pagos","Pagos y vencimientos"]];
+const SECS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retiros de caja"],["adelantos","Adelantos"],["propinas","Propinas"],["personal","Personal"],["pagos","Pagos y vencimientos"],["temas","Temas internos"]];
 const PRIV = [["sueldos","Sueldos"],["documentos","Documento, teléfono y nacimiento"],["cuentas","Cuenta bancaria"],["contacto","Email, domicilio y contacto de emergencia"]];
 function nivelDe(perfil, sec) {
   if (!perfil) return 0;
@@ -699,6 +699,38 @@ function vPersonal() {
   </div>`;
 }
 
+function vTemas() {
+  const e = (S.temas || []).find(t => t.id === ui.editing.tema) || {};
+  const filtro = ui.temasEstado || "abiertos";
+  const hoy = today();
+  const list = (S.temas || []).filter(t => filtro === "todos" || (filtro === "resueltos") === (t.estado === "Resuelto"))
+    .sort((a, b) => (a.estado === "Resuelto") - (b.estado === "Resuelto") || (a.fechaLimite || "9999").localeCompare(b.fechaLimite || "9999") || (a.creado || "").localeCompare(b.creado || ""));
+  const abiertos = (S.temas || []).filter(t => t.estado !== "Resuelto");
+  const vencidos = abiertos.filter(t => t.fechaLimite && t.fechaLimite < hoy).length;
+  const limite = t => { if (!t.fechaLimite) return `<span class="muted small">Sin fecha</span>`; if (t.estado === "Resuelto") return fmtD(t.fechaLimite); const d = Math.round((parseISO(t.fechaLimite) - parseISO(hoy)) / 864e5); return `<span class="pill ${d < 0 ? "bad" : d <= 3 ? "warn" : "mute"}">${fmtD(t.fechaLimite)}${d < 0 ? " · vencido" : d === 0 ? " · hoy" : ""}</span>`; };
+  const nombres = [...new Set([S.perfil?.nombre, ...S.personal.filter(p => estadoPersona(p) !== "Baja").map(p => p.nombre), ...(S.temas || []).map(t => t.responsable)].filter(Boolean))].sort();
+  return `
+  <div class="grid">
+    <div class="card tile"><div class="label">Temas abiertos</div><div class="num">${abiertos.length}</div><div class="note">${vencidos ? vencidos + (vencidos === 1 ? " con la fecha vencida" : " con la fecha vencida") : "Ninguno vencido"}</div></div>
+  </div>
+  ${plegCard("tema", e.id ? "Editar tema" : "Nuevo tema", !!e.id)}
+    <p class="muted small" style="margin:0 0 10px">Para cosas internas que hay que resolver y que no son un pago: no tocan la caja ni los montos.</p>
+    <form class="f" id="fTema">
+      <label class="fl wide">Tema<input id="tm_tit" name="titulo" required value="${esc(e.titulo || "")}" placeholder="Ej.: Vinos de Garzón que vinieron de La Cava"></label>
+      <label class="fl wide">Qué hay que resolver<textarea id="tm_det" name="detalle" rows="3">${esc(e.detalle || "")}</textarea></label>
+      <label class="fl">Responsable<input id="tm_resp" name="responsable" list="dlResp" value="${esc(e.responsable ?? "")}"></label>
+      <label class="fl">Fecha límite<input id="tm_lim" name="fechaLimite" type="date" value="${esc(e.fechaLimite || "")}"></label>
+      ${e.id ? `<label class="fl">Estado<select id="tm_est" name="estado">${opts(["Abierto", "Resuelto"], e.estado || "Abierto")}</select></label>` : ""}
+      <div class="btns wide"><button class="b primary" type="submit" ${roOnly(e.id ? 3 : 2)}>${e.id ? "Guardar" : "Agregar tema"}</button>${e.id ? `<button class="b" type="button" data-act="cancelTema">Cancelar</button><button class="b danger" type="button" ${roOnly(3)} data-act="delTema" data-id="${e.id}">Borrar</button>` : ""}</div>
+      <datalist id="dlResp">${nombres.map(n => `<option value="${esc(n)}">`).join("")}</datalist>
+    </form></div>
+  <div class="card">
+    <div class="toolbar"><h3 style="margin:0">Temas</h3>
+      <select id="temasEst" aria-label="Estado">${[["abiertos", "Abiertos"], ["resueltos", "Resueltos"], ["todos", "Todos"]].map(([k, l]) => `<option value="${k}" ${filtro === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Tema</th><th>Responsable</th><th>Fecha límite</th><th>Estado</th><th></th></tr></thead><tbody>${list.map(t => `<tr class="click" data-act="editTema" data-id="${t.id}"><td>${esc(t.titulo)}${t.detalle ? `<div class="muted small" style="white-space:pre-line">${esc(t.detalle)}</div>` : ""}</td><td>${esc(t.responsable || "—")}</td><td>${limite(t)}</td><td><span class="pill ${t.estado === "Resuelto" ? "good" : "acc"}">${t.estado === "Resuelto" ? "Resuelto" + (t.resueltoFecha ? " " + fmtD(t.resueltoFecha).slice(0, 5) : "") : "Abierto"}</span></td><td class="n">${niv("temas") >= 3 ? `<button class="b small" type="button" data-act="${t.estado === "Resuelto" ? "reabrirTema" : "resolverTema"}" data-id="${t.id}">${t.estado === "Resuelto" ? "Reabrir" : "Marcar resuelto"}</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">${filtro === "abiertos" ? "No hay temas abiertos." : "No hay temas."}</div>`}
+  </div>`;
+}
+
 function vPagos() {
   const e = S.pagos.find(p => p.id === ui.editing.pago) || {};
   if (ui.formasFor !== (ui.editing.pago || "nuevo")) { ui.formasFor = ui.editing.pago || "nuevo"; ui.formasDraft = formasDe(e).map(f => ({...f})); }
@@ -798,6 +830,11 @@ document.addEventListener("click", async ev => {
     case "verSem": ui.semana = id; render(); window.scrollTo(0, 0); break;
     case "newPer": ui.editing.per = "nuevo"; render(); $("#fPer input[name=nombre]")?.focus(); break;
     case "editPer": ui.editing.per = id; ui.perEditar = false; ui.bajaAbierta = null; render(); window.scrollTo(0, 0); break;
+    case "editTema": ui.editing = {tema: id}; render(); window.scrollTo(0, 0); break;
+    case "cancelTema": ui.editing = {}; render(); break;
+    case "delTema": conf(async () => { await remove("temas", id); ui.editing = {}; }); break;
+    case "resolverTema": ev.stopPropagation?.(); await patch("temas", id, {estado: "Resuelto", resueltoFecha: today()}); break;
+    case "reabrirTema": ev.stopPropagation?.(); await patch("temas", id, {estado: "Abierto", resueltoFecha: null}); break;
     case "plegar": { const k = id; if (ui.abiertos.has(k)) ui.abiertos.delete(k); else ui.abiertos.add(k); render(); if (ui.abiertos.has(k)) { const b = document.querySelector(`[data-act="plegar"][data-id="${CSS.escape(k)}"]`); b?.closest(".card")?.querySelector("form input:not([type=hidden]):not([readonly]), form select")?.focus(); } break; }
     case "editarPer": ui.perEditar = true; render(); $("#pe_nom")?.focus(); break;
     case "bpsFicha": ev.preventDefault?.(); ui.editing.per = id; ui.perEditar = niv("personal") >= 3; ui.bajaAbierta = null; render(); { const f = $("#fPer") || $(".ficha"); f?.scrollIntoView({block: "start"}); } break;
@@ -873,6 +910,13 @@ document.addEventListener("submit", async ev => {
     if (old && old.nombre !== rec.nombre) for (const a of adelDe(old)) await patch("adelantos", a.id, {empleado: rec.nombre, personaId: id});
     if ("sueldoLiquido" in d) d.sueldoLiquido = numIn(d.sueldoLiquido) ?? ""; if ("sueldoNominal" in d) d.sueldoNominal = numIn(d.sueldoNominal) ?? "";
     if (await save("personal", id, rec) && await guardarPriv(id, d, old)) { if (nuevo) await marcarNuevo("Persona", rec.nombre, "Personal"); toast("Ficha guardada"); ui.editing.per = id; ui.perEditar = false; render(); window.scrollTo(0, 0); }
+  } else if (f.id === "fTema") {
+    const old = (S.temas || []).find(t => t.id === ui.editing.tema);
+    const estado = d.estado || old?.estado || "Abierto";
+    const rec = {titulo: d.titulo.trim(), detalle: d.detalle.trim(), responsable: d.responsable.trim(), fechaLimite: d.fechaLimite || null, estado, resueltoFecha: estado === "Resuelto" ? (old?.resueltoFecha || today()) : null};
+    if (!rec.titulo) { toast("Poné el tema"); return; }
+    if (!old) rec.creado = new Date().toISOString();
+    if (await save("temas", old?.id, rec)) { toast(old ? "Tema guardado" : "Tema agregado"); ui.editing = {}; if (!old) ui.abiertos.delete("tema"); render(); }
   } else if (f.id === "fPago") {
     if (d.proveedor.trim() && !conocidos().has(norm(d.proveedor))) await marcarNuevo("Proveedor", d.proveedor.trim(), "Pagos");
     const formas = leerFormas();
@@ -917,6 +961,7 @@ document.addEventListener("change", async ev => {
   else if (t.id === "perSec") { ui.personalSector = t.value; render(); }
   else if (t.id === "perOcultar") { ui.ocultarSueldos = t.checked; render(); }
   else if (t.id === "pgEst") { ui.pagosEstado = t.value; render(); }
+  else if (t.id === "temasEst") { ui.temasEstado = t.value; render(); }
   else if (t.id === "semPick" && t.value) { ui.semana = monday(t.value); render(); }
   else if (t.dataset.prop) {
     const [fecha, turno] = t.dataset.prop.split("|"); const k = propKey(fecha, turno); const cur = propina(fecha, turno)?.monto ?? "";
