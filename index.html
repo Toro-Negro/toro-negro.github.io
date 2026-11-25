@@ -87,6 +87,8 @@ tr.click:hover td{background:var(--surface-2)}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px}
 .kv dt{color:var(--muted)} .kv dd{margin:0;text-align:right;font-weight:600}
 @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+.plegable{all:unset;box-sizing:border-box;display:flex;width:100%;justify-content:space-between;align-items:center;cursor:pointer;margin-bottom:10px}
+.card.plegada{padding-top:10px;padding-bottom:10px}.card.plegada .plegable{margin:0}.plegable:focus-visible{outline:2px solid var(--acc,#d4561e);outline-offset:4px;border-radius:4px}
 .login{max-width:380px;margin:40px auto 0;display:grid;gap:12px}
 .login .logo-big{height:64px;width:auto;justify-self:center;border-radius:8px;background:#fff;padding:4px 8px}
 .who{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
@@ -595,7 +597,7 @@ function vPersonal() {
     return !q || [p.nombre, p.cargo, p.sector].join(" ").toLowerCase().includes(q);
   });
   const n = S.personal.filter(p => estadoPersona(p) !== "Baja").length;
-  const form = p => `<div class="card"><h3>${p.id ? "Ficha de " + esc(p.nombre) : "Nueva persona"}</h3>
+  const form = p => `<div class="card">${p.id ? `<h3>Ficha de ${esc(p.nombre)}</h3>` : `<button type="button" class="plegable" data-act="cancelPer" aria-expanded="true"><h3 style="margin:0">Nueva persona</h3><span class="muted">▾</span></button>`}
     <form class="f" id="fPer">
       <label class="fl wide">Nombre<input id="pe_nom" name="nombre" required value="${esc(p.nombre || "")}"></label>
       <label class="fl">Sector<select id="pe_sec" name="sector">${opts([...new Set(["Cocina","Sala","Barra","Limpieza","Caja","Administración","Otros", ...(p.sector ? [p.sector] : [])])], p.sector || "Cocina")}</select></label>
@@ -634,7 +636,7 @@ function vPersonal() {
     ${ui.bpsVer ? (procesadas.length ? `<h3 style="margin:12px 0 4px">Procesadas</h3><div class="tbl-wrap"><table><tbody>${procesadas.map(({p, tipo, f, por}) => `<tr><td><span class="pill ${tipo === "alta" ? "good" : "bad"}">${tipo === "alta" ? "Alta" : "Baja"}</span></td><td>${esc(p.nombre)}</td><td class="small muted">Procesada el ${fmtD(f)} por ${esc(por || "")}</td><td class="n"><button class="b small" type="button" data-act="bpsUndo" data-tipo="${tipo}" data-id="${p.id}">Volver a pendiente</button></td></tr>`).join("")}</tbody></table></div>` : `<p class="muted small">Todavía no se marcó ninguna desde la app.</p>`) : ""}</div>`;
   return `
   ${bpsCard}
-  ${e || ui.editing.per === "nuevo" ? form(e || {}) : ""}
+  ${e || ui.editing.per === "nuevo" ? form(e || {}) : roOnly() ? "" : `<div class="card plegada"><button type="button" class="plegable" data-act="newPer" aria-expanded="false"><h3 style="margin:0">Nueva persona</h3><span class="muted">▸</span></button></div>`}
   <div class="card">
     <div class="toolbar"><h3 style="margin:0">${n} personas activas</h3>
       <div class="btns" style="flex:1;justify-content:flex-end">
@@ -744,7 +746,7 @@ document.addEventListener("click", async ev => {
     case "semPrev": ui.semana = addDays(ui.semana, -7); render(); break;
     case "semNext": ui.semana = addDays(ui.semana, 7); render(); break;
     case "verSem": ui.semana = id; render(); window.scrollTo(0, 0); break;
-    case "newPer": ui.editing.per = "nuevo"; render(); window.scrollTo(0, 0); break;
+    case "newPer": ui.editing.per = "nuevo"; render(); $("#fPer input[name=nombre]")?.focus(); break;
     case "editPer": ui.editing.per = id; render(); window.scrollTo(0, 0); break;
     case "cancelPer": ui.editing.per = null; ui.bajaAbierta = null; render(); break;
     case "abrirBaja": ui.bajaAbierta = ui.editing.per; render(); $("#bj_mot")?.focus(); break;
