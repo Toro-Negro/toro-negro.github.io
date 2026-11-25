@@ -151,12 +151,12 @@ const TABS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retir
 /* ---------- cálculos ---------- */
 const enPesos = (monto, moneda, cot) => moneda === "US$" ? (monto || 0) * (cot || S.cfg.cotizacion) : (monto || 0);
 function cajaTotales(desde) {
-  let ing = 0, egr = 0;
-  S.movimientos.forEach(m => { if (desde && m.fecha < desde) return; if (m.estado === "Pendiente de pago") return; const v = enPesos(m.monto, m.moneda, m.cotizacion); if (m.tipo === "Ingreso") ing += v; else egr += v; });
+  let ing = 0, egr = 0, ajm = 0;
+  S.movimientos.forEach(m => { if (desde && m.fecha < desde) return; if (m.estado === "Pendiente de pago") return; const v = enPesos(m.monto, m.moneda, m.cotizacion); if (m.categoria === "Ajuste") ajm += m.tipo === "Ingreso" ? v : -v; else if (m.tipo === "Ingreso") ing += v; else egr += v; });
   let adel = 0;
   S.adelantos.forEach(a => { if (a.estado !== "Entregado" || deRetiros(a)) return; if (desde && a.fecha < desde) return; adel += a.monto || 0; });
   const aj = desde ? 0 : ajusteArq("Fondo de dueños").pesos;
-  return {ing, egr: egr + adel, adel, ajuste: aj, saldo: ing - egr - adel + aj};
+  return {ing, egr: egr + adel, adel, ajuste: aj, ajusteMov: ajm, saldo: ing - egr - adel + aj + ajm};
 }
 function ajusteArq(cuenta) {
   let pesos = 0, usd = 0;
@@ -317,7 +317,7 @@ function render() {
 }
 const empleadosOpts = (sel, soloActivos = true) => sortBy(S.personal, "nombre").filter(p => !soloActivos || estadoPersona(p) !== "Baja" || p.nombre === sel).map(p => `<option ${p.nombre === sel ? "selected" : ""}>${esc(p.nombre)}</option>`).join("");
 const opts = (list, sel) => list.map(o => `<option ${o === sel ? "selected" : ""}>${esc(o)}</option>`).join("");
-const CATS = ["Aporte de socio","Venta","Jornal","Sueldo","Proveedor","Compra","Otro"];
+const CATS = ["Aporte de socio","Venta","Jornal","Sueldo","Proveedor","Compra","Ajuste","Otro"];
 const NIV = {no: 0, ver: 1, cargar: 2, editar: 3};
 const SECS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retiros de caja"],["adelantos","Adelantos"],["propinas","Propinas"],["personal","Personal"],["pagos","Pagos y vencimientos"]];
 const PRIV = [["sueldos","Sueldos"],["documentos","Documento, teléfono y nacimiento"],["cuentas","Cuenta bancaria"],["contacto","Email, domicilio y contacto de emergencia"]];
@@ -383,7 +383,7 @@ function vResumen() {
   const ps = semanaPropina(monday(today()));
   return `
   <div class="grid">
-    ${niv("caja") ? `<div class="card tile"><div class="label">Fondo de dueños</div><div class="num">${pesos(c.saldo)}</div><div class="note">Quedan de ${pesos(c.ing)} recibidos · gastado ${pesos(c.egr)}${c.ajuste ? " · ajuste por arqueo " + pesos(c.ajuste) : ""}${movPend().length ? " · " + pesos(movPend().reduce((t, m) => t + enPesos(m.monto, m.moneda, m.cotizacion), 0)) + " por pagar" : ""}</div></div>` : ""}
+    ${niv("caja") ? `<div class="card tile"><div class="label">Fondo de dueños</div><div class="num">${pesos(c.saldo)}</div><div class="note">Quedan de ${pesos(c.ing)} recibidos · gastado ${pesos(c.egr)}${c.ajuste ? " · ajuste por arqueo " + pesos(c.ajuste) : ""}${c.ajusteMov ? " · ajustes " + pesos(c.ajusteMov) : ""}${movPend().length ? " · " + pesos(movPend().reduce((t, m) => t + enPesos(m.monto, m.moneda, m.cotizacion), 0)) + " por pagar" : ""}</div></div>` : ""}
     ${niv("fuerte") ? `<div class="card tile"><div class="label">Retiros de caja</div><div class="num">${pesos(f.pesos)}</div><div class="note">y ${usd(f.usd)} · total ${pesos(f.equiv)} a $${nf0.format(S.cfg.cotizacion)}</div></div>` : ""}
     ${niv("adelantos") ? `<div class="card tile"><div class="label">Adelantos a descontar</div><div class="num">${pesos(adel)}</div><div class="note">${pendEnt.length ? pendEnt.length + " sin entregar (" + pesos(pendEnt.reduce((s,a)=>s+(a.monto||0),0)) + ")" : "Todos entregados"}</div></div>` : ""}
     ${niv("pagos") ? `<div class="card tile"><div class="label">Deuda pendiente</div><div class="num">${pesos(deudaP)}</div><div class="note">y ${usd(deudaU)} · ${pend.length} pagos</div></div>` : ""}
@@ -418,8 +418,8 @@ function vCaja() {
   ], "fecha", -1).filter(m => !ui.movSemana || m.fecha >= ui.movSemana);
   return `
   <div class="grid">
-    <div class="card tile"><div class="label">Quedan del fondo</div><div class="num">${pesos(c.saldo)}</div><div class="note">Plata que te dieron los dueños, guardada en la caja fuerte${c.ajuste ? " · incluye ajuste por arqueo de " + pesos(c.ajuste) : ""}</div></div>
-    <div class="card tile"><div class="label">Recibido</div><div class="num pos">${pesos(c.ing)}</div></div>
+    <div class="card tile"><div class="label">Quedan del fondo</div><div class="num">${pesos(c.saldo)}</div><div class="note">Plata que te dieron los dueños, guardada en la caja fuerte${c.ajuste ? " · incluye ajuste por arqueo de " + pesos(c.ajuste) : ""}${c.ajusteMov ? " · incluye ajustes de " + pesos(c.ajusteMov) + " (ver movimientos)" : ""}</div></div>
+    <div class="card tile"><div class="label">Recibido</div><div class="num pos">${pesos(c.ing)}</div>${c.ajusteMov ? `<div class="note">Aportes de los dueños. El ajuste de ${pesos(c.ajusteMov)} va aparte, en movimientos.</div>` : ""}</div>
     <div class="card tile"><div class="label">Egresos</div><div class="num neg">${pesos(c.egr)}</div><div class="note">Incluye ${pesos(c.adel)} de adelantos</div></div>
     <div class="card tile"><div class="label">Gastos pendientes de pago</div><div class="num">${pesos(movPend().reduce((t, m) => t + enPesos(m.monto, m.moneda, m.cotizacion), 0))}</div><div class="note">${movPend().length ? movPend().length + " sin pagar, no se descuentan todavía" : "Ninguno"}</div></div>
   </div>
