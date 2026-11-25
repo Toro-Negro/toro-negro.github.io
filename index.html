@@ -596,7 +596,7 @@ function vPropinas() {
   </div>
   <div class="row2">
     <div class="card"><h3>Entrega al jefe de cocina</h3><dl class="kv">
-      <dt>OCA acredita lo del domingo (estimado)</dt><dd>${fmtD(w.acred)}</dd>
+      <dt>OCA acredita las propinas hasta el domingo (estimado)</dt><dd>${fmtD(w.acred)}</dd>
       <dt>Se puede entregar el lunes</dt><dd>${fmtD(w.entrega)}</dd>
     </dl>
     <div class="btns" style="margin-top:12px">
@@ -747,10 +747,10 @@ function vPagos() {
 
 function vAjustes() {
   return `
-  <div class="card"><h3>Cotización y plazos</h3>
+  <div class="card"><h3>Cotización y plazo de las propinas</h3>
     <form class="f" id="fCfg">
       <label class="fl">Cotización del dólar ($ por US$)<input id="cfg_cot" name="cotizacion" inputmode="decimal" value="${S.cfg.cotizacion}"></label>
-      <label class="fl">Días hasta que OCA acredita la propina<input id="cfg_dias" name="diasAcreditacion" inputmode="numeric" value="${S.cfg.diasAcreditacion}"></label>
+      <label class="fl">Días para acreditar las propinas de tarjeta (OCA)<input id="cfg_dias" name="diasAcreditacion" inputmode="numeric" value="${S.cfg.diasAcreditacion}"></label>
       <div class="btns wide"><button class="b primary" type="submit" ${adminOnly()}>Guardar</button><span class="muted small">La cotización queda fija hasta que la cambies. Los movimientos en dólares guardan la cotización del día en que se cargaron.</span></div>
     </form></div>
   <div class="card"><h3>Copia de los datos</h3>
