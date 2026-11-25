@@ -138,7 +138,7 @@ const S = {cfg: {cotizacion: 41, diasAcreditacion: 15}, ready: {}, canWrite: tru
 COLS.forEach(c => S[c] = []);
 let db = null, dl = true;
 let tab = "resumen";
-const ui = {editing: {}, propDraft: {}, formasDraft: null, formasFor: null, gruposAbiertos: new Set(), adelPara: null, personalQ: "", personalEstado: "activos", personalSector: "", ocultarSueldos: true, pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
+const ui = {editing: {}, propDraft: {}, formasDraft: null, formasFor: null, gruposAbiertos: new Set(), adelPara: null, bajaAbierta: null, bpsVer: false, personalQ: "", personalEstado: "activos", personalSector: "", ocultarSueldos: true, pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
 
 const TABS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retiros de caja"],["adelantos","Adelantos"],["propinas","Propinas"],["personal","Personal"],["pagos","Pagos y vencimientos"],["ajustes","Ajustes"],["usuarios","Usuarios"]];
 
@@ -314,7 +314,7 @@ const opts = (list, sel) => list.map(o => `<option ${o === sel ? "selected" : ""
 const CATS = ["Aporte de socio","Venta","Jornal","Sueldo","Proveedor","Compra","Otro"];
 const NIV = {no: 0, ver: 1, cargar: 2, editar: 3};
 const SECS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retiros de caja"],["adelantos","Adelantos"],["propinas","Propinas"],["personal","Personal"],["pagos","Pagos y vencimientos"]];
-const PRIV = [["sueldos","Sueldos"],["documentos","Documento y teléfono"],["cuentas","Cuenta bancaria"]];
+const PRIV = [["sueldos","Sueldos"],["documentos","Documento, teléfono y nacimiento"],["cuentas","Cuenta bancaria"],["contacto","Email y domicilio"]];
 function nivelDe(perfil, sec) {
   if (!perfil) return 0;
   if (perfil.rol === "admin") return 3;
@@ -328,13 +328,22 @@ const privDe = (perfil, g) => perfil?.rol === "admin" || !!perfil?.permisos?.pri
 const priv = g => privDe(S.perfil, g);
 const roOnly = (need = 2) => niv(tab) >= need ? "" : "disabled";
 const adminOnly = () => S.perfil?.rol === "admin" ? "" : "disabled";
-const PRIV_CAMPOS = {sueldoLiquido: "sueldos", sueldoNominal: "sueldos", documento: "documentos", telefono: "documentos", cuenta: "cuentas"};
+const PRIV_CAMPOS = {sueldoLiquido: "sueldos", sueldoNominal: "sueldos", documento: "documentos", telefono: "documentos", nacimiento: "documentos", cuenta: "cuentas", email: "contacto", domicilio: "contacto"};
+const puedeBps = () => S.perfil?.rol === "admin" || !!S.perfil?.permisos?.bps;
+const bpsPend = () => [
+  ...S.personal.filter(p => p.alta && !p.altaBps).map(p => ({p, tipo: "alta", fecha: p.alta})),
+  ...S.personal.filter(p => p.baja && !p.bajaBps).map(p => ({p, tipo: "baja", fecha: p.baja}))].sort((a, b) => (a.fecha || "").localeCompare(b.fecha || ""));
+async function marcarBps(pid, tipo, deshacer) {
+  const {error} = await sb.rpc("marcar_bps", {p_persona: pid, p_tipo: tipo, p_deshacer: !!deshacer});
+  if (error) { toast("No se pudo marcar: " + (error.message || "")); return; }
+  toast(deshacer ? "Volvió a pendientes" : "Marcada como procesada");
+}
 function mergePriv() {
   const m = {}; (S.personalPrivado || []).forEach(r => { (m[r.persona] ||= {})[r.campo] = r.valor; });
   S.personal.forEach(p => { const x = m[p.id] || {};
     p.sueldoLiquido = x.sueldoLiquido != null && x.sueldoLiquido !== "" ? Number(x.sueldoLiquido) : null;
     p.sueldoNominal = x.sueldoNominal != null && x.sueldoNominal !== "" ? Number(x.sueldoNominal) : null;
-    p.documento = x.documento || ""; p.telefono = x.telefono || ""; p.cuenta = x.cuenta || ""; });
+    p.documento = x.documento || ""; p.telefono = x.telefono || ""; p.cuenta = x.cuenta || ""; p.nacimiento = x.nacimiento || ""; p.email = x.email || ""; p.domicilio = x.domicilio || ""; });
 }
 async function guardarPriv(pid, d, old) {
   for (const campo of Object.keys(PRIV_CAMPOS)) {
@@ -591,22 +600,40 @@ function vPersonal() {
       <label class="fl wide">Nombre<input id="pe_nom" name="nombre" required value="${esc(p.nombre || "")}"></label>
       <label class="fl">Sector<select id="pe_sec" name="sector">${opts([...new Set(["Cocina","Sala","Barra","Limpieza","Caja","Administración","Otros", ...(p.sector ? [p.sector] : [])])], p.sector || "Cocina")}</select></label>
       <label class="fl">Cargo<input id="pe_car" name="cargo" value="${esc(p.cargo || "")}"></label>
-      <label class="fl">Fecha de alta<input id="pe_alta" name="alta" type="date" value="${esc(p.alta || "")}"></label>
-      <label class="fl">Fecha de baja<input id="pe_baja" name="baja" type="date" value="${esc(p.baja || "")}"></label>
+      <label class="fl">Fecha de ingreso<input id="pe_alta" name="alta" type="date" required value="${esc(p.alta || (p.id ? "" : today()))}"></label>
+      ${p.baja ? `<label class="fl">Fecha de baja<input id="pe_baja" name="baja" type="date" value="${esc(p.baja)}"></label>
+      <label class="fl">Motivo de la baja<input id="pe_bmot" name="bajaMotivo" value="${esc(p.bajaMotivo || "")}"></label>` : ""}
       ${priv("sueldos") ? `<label class="fl">Sueldo líquido ($)<input id="pe_liq" name="sueldoLiquido" inputmode="decimal" value="${p.sueldoLiquido ?? ""}" placeholder="${p.laudo ? "Laudo" : ""}"></label>
       <label class="fl">Sueldo nominal ($)<input id="pe_nomi" name="sueldoNominal" inputmode="decimal" value="${p.sueldoNominal ?? ""}"></label>` : ""}
       <label class="fl">Cobra por laudo<select id="pe_laudo" name="laudo">${opts(["No","Sí"], p.laudo ? "Sí" : "No")}</select></label>
       <label class="fl">Horario<input id="pe_hor" name="horario" value="${esc(p.horario || "")}" placeholder="Ej.: 18 a 01, lunes libre"></label>
       ${priv("documentos") ? `<label class="fl">Documento<input id="pe_doc" name="documento" value="${esc(p.documento || "")}"></label>
       <label class="fl">Teléfono<input id="pe_tel" name="telefono" value="${esc(p.telefono || "")}"></label>` : ""}
+      ${priv("documentos") ? `<label class="fl">Fecha de nacimiento<input id="pe_nac" name="nacimiento" type="date" value="${esc(p.nacimiento || "")}"></label>` : ""}
+      ${priv("contacto") ? `<label class="fl">Email<input id="pe_mail" name="email" type="email" value="${esc(p.email || "")}"></label>
+      <label class="fl wide">Domicilio<input id="pe_dom" name="domicilio" value="${esc(p.domicilio || "")}"></label>` : ""}
       ${priv("cuentas") ? `<label class="fl">Cuenta bancaria<input id="pe_cta" name="cuenta" value="${esc(p.cuenta || "")}" placeholder="Banco y número"></label>` : ""}
       <label class="fl">Contrato firmado<select id="pe_con" name="contrato">${opts(["","Sí","No"], p.contrato || "")}</select></label>
       <label class="fl wide">Notas<input id="pe_not" name="notas" value="${esc(p.notas || "")}"></label>
       ${p.id ? `<div class="wide"><h3 style="margin:8px 0 4px">Adelantos</h3>${(() => { const ad = sortBy(adelDe(p), "fecha", -1); return ad.length ? `<div class="tbl-wrap"><table><tbody>${ad.map(a => `<tr class="click" data-act="goAdel" data-id="${a.id}"><td>${fmtD(a.fecha)}</td><td>${pesos(a.monto)}</td><td><span class="pill ${a.estado !== "Entregado" ? "warn" : a.descontado ? "mute" : "acc"}">${a.estado !== "Entregado" ? "Pendiente de entrega" : a.descontado ? "Ya descontado" : "A descontar"}</span></td><td class="muted small">${esc(a.notas || "")}</td></tr>`).join("")}</tbody></table></div>` : `<div class="muted small">No tiene adelantos.</div>`; })()}
         <div class="btns" style="margin-top:6px;align-items:center">${niv("adelantos") >= 2 && estadoPersona(p) !== "Baja" ? `<button class="b small" type="button" data-act="darAdel" data-id="${p.id}">+ Dar adelanto</button>` : ""}<span class="small muted">A descontar: <strong>${pesos(adelPendDesc(p.nombre))}</strong>${priv("sueldos") && p.sueldoLiquido && !ui.ocultarSueldos ? ` · líquido menos adelantos: <strong>${pesos(p.sueldoLiquido - adelPendDesc(p.nombre))}</strong>` : ""}</span></div></div>` : ""}
-      <div class="btns wide"><button class="b primary" type="submit" ${roOnly(p.id ? 3 : 2)}>${p.id ? "Guardar ficha" : "Agregar persona"}</button><button class="b" type="button" data-act="cancelPer">Cerrar</button>${p.id ? `<button class="b danger" type="button" ${roOnly(3)} data-act="delPer" data-id="${p.id}">Borrar</button>` : ""}</div>
-    </form></div>`;
+      <div class="btns wide"><button class="b primary" type="submit" ${roOnly(p.id ? 3 : 2)}>${p.id ? "Guardar ficha" : "Agregar persona"}</button><button class="b" type="button" data-act="cancelPer">Cerrar</button>${p.id && !p.baja ? `<button class="b" type="button" ${roOnly(3)} data-act="abrirBaja">Dar de baja</button>` : ""}${p.id ? `<button class="b danger" type="button" ${roOnly(3)} data-act="delPer" data-id="${p.id}">Borrar</button>` : ""}</div>
+    </form>
+    ${p.id && !p.baja && ui.bajaAbierta === p.id ? `<form class="f" id="fBaja" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line, #ddd)">
+      <div class="wide"><h3 style="margin:0">Dar de baja a ${esc(p.nombre)}</h3><p class="muted small" style="margin:4px 0 0">Queda en Personal como baja, no se borra, y le aparece al contador para procesarla en BPS.</p></div>
+      <label class="fl">Último día trabajado<input id="bj_fecha" name="fecha" type="date" required value="${today()}"></label>
+      <label class="fl wide">Motivo<input id="bj_mot" name="motivo" required placeholder="Ej.: renuncia, despido, fin de temporada"></label>
+      <div class="btns wide"><button class="b danger" type="submit">Confirmar baja</button><button class="b" type="button" data-act="cerrarBaja">Cancelar</button></div>
+    </form>` : ""}</div>`;
+  const bp = puedeBps() ? bpsPend() : [];
+  const procesadas = puedeBps() && ui.bpsVer ? [
+    ...S.personal.filter(p => p.altaBps && !/^Carga inicial/.test(p.altaBpsPor || "")).map(p => ({p, tipo: "alta", f: p.altaBps, por: p.altaBpsPor})),
+    ...S.personal.filter(p => p.bajaBps && !/^Carga inicial/.test(p.bajaBpsPor || "")).map(p => ({p, tipo: "baja", f: p.bajaBps, por: p.bajaBpsPor}))].sort((a, b) => b.f.localeCompare(a.f)).slice(0, 15) : [];
+  const bpsCard = !puedeBps() ? "" : `<div class="card"><div class="toolbar"><h3 style="margin:0">Altas y bajas pendientes de BPS: ${bp.length}</h3><button class="b small" type="button" data-act="bpsVer">${ui.bpsVer ? "Ocultar procesadas" : "Ver procesadas"}</button></div>
+    ${bp.length ? `<div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th></th><th>Persona</th><th>Fecha</th><th>Datos</th><th></th></tr></thead><tbody>${bp.map(({p, tipo, fecha}) => `<tr><td><span class="pill ${tipo === "alta" ? "good" : "bad"}">${tipo === "alta" ? "Alta" : "Baja"}</span></td><td>${esc(p.nombre)}<div class="muted small">${esc([p.sector === "Sala" ? "Salón" : p.sector, p.cargo].filter(Boolean).join(" · "))}</div></td><td>${tipo === "alta" ? "Ingresa " : "Último día "}${fmtD(fecha)}</td><td class="small">${tipo === "baja" ? esc(p.bajaMotivo || "Sin motivo cargado") : esc([priv("documentos") && p.documento ? "CI " + p.documento : "", priv("documentos") && p.nacimiento ? "Nació " + fmtD(p.nacimiento) : "", priv("documentos") && p.telefono ? "Tel. " + p.telefono : "", priv("sueldos") ? (p.laudo ? "Laudo" : "") + (p.sueldoNominal ? " · nominal " + pesos(p.sueldoNominal) : "") : "", priv("cuentas") && p.cuenta ? "Cuenta " + p.cuenta : ""].filter(Boolean).join(" · "))}</td><td class="n"><button class="b small primary" type="button" data-act="bpsOk" data-tipo="${tipo}" data-id="${p.id}">Marcar procesada</button></td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay altas ni bajas pendientes.</div>`}
+    ${ui.bpsVer ? (procesadas.length ? `<h3 style="margin:12px 0 4px">Procesadas</h3><div class="tbl-wrap"><table><tbody>${procesadas.map(({p, tipo, f, por}) => `<tr><td><span class="pill ${tipo === "alta" ? "good" : "bad"}">${tipo === "alta" ? "Alta" : "Baja"}</span></td><td>${esc(p.nombre)}</td><td class="small muted">Procesada el ${fmtD(f)} por ${esc(por || "")}</td><td class="n"><button class="b small" type="button" data-act="bpsUndo" data-tipo="${tipo}" data-id="${p.id}">Volver a pendiente</button></td></tr>`).join("")}</tbody></table></div>` : `<p class="muted small">Todavía no se marcó ninguna desde la app.</p>`) : ""}</div>`;
   return `
+  ${bpsCard}
   ${e || ui.editing.per === "nuevo" ? form(e || {}) : ""}
   <div class="card">
     <div class="toolbar"><h3 style="margin:0">${n} personas activas</h3>
@@ -616,7 +643,7 @@ function vPersonal() {
         ${priv("sueldos") ? `<label class="small" style="display:flex;gap:6px;align-items:center;white-space:nowrap"><input type="checkbox" id="perOcultar" ${ui.ocultarSueldos ? "checked" : ""} style="width:auto"> Ocultar sueldos</label>` : ""}
         <select id="perEst" aria-label="Estado">${[["activos","Activos"],["bajas","Bajas"],["todos","Todos"]].map(([k,l]) => `<option value="${k}" ${ui.personalEstado === k ? "selected" : ""}>${l}</option>`).join("")}</select>
         <button class="b primary" data-act="newPer" ${roOnly()}>Agregar</button></div></div>
-    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Nombre</th><th>Sector</th><th>Alta</th>${priv("sueldos") ? `<th class="n">Sueldo líquido</th>` : ""}<th class="n">Adelantos</th><th>Estado</th></tr></thead><tbody>${list.map(p => { const est = estadoPersona(p); const ad = adelPendDesc(p.nombre); return `<tr class="click" data-act="editPer" data-id="${p.id}"><td>${esc(p.nombre)}<div class="muted small">${esc(p.cargo || "")}</div></td><td>${esc(p.sector || "")}</td><td>${fmtD(p.alta)}</td>${priv("sueldos") ? `<td class="n">${ui.ocultarSueldos ? "•••••" : p.sueldoLiquido ? pesos(p.sueldoLiquido) : p.laudo ? "Laudo" : "—"}</td>` : ""}<td class="n">${ad ? pesos(ad) : "—"}</td><td><span class="pill ${est === "Activo" ? "good" : est === "Baja" ? "mute" : "acc"}">${est}${est === "Baja" ? " " + fmtD(p.baja).slice(0,5) : ""}</span></td></tr>`; }).join("")}</tbody></table></div>` : `<div class="empty">No hay personas que coincidan.</div>`}
+    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Nombre</th><th>Sector</th><th>Alta</th>${priv("sueldos") ? `<th class="n">Sueldo líquido</th>` : ""}<th class="n">Adelantos</th><th>Estado</th></tr></thead><tbody>${list.map(p => { const est = estadoPersona(p); const ad = adelPendDesc(p.nombre); return `<tr class="click" data-act="editPer" data-id="${p.id}"><td>${esc(p.nombre)}<div class="muted small">${esc(p.cargo || "")}</div></td><td>${esc(p.sector || "")}</td><td>${fmtD(p.alta)}</td>${priv("sueldos") ? `<td class="n">${ui.ocultarSueldos ? "•••••" : p.sueldoLiquido ? pesos(p.sueldoLiquido) : p.laudo ? "Laudo" : "—"}</td>` : ""}<td class="n">${ad ? pesos(ad) : "—"}</td><td><span class="pill ${est === "Activo" ? "good" : est === "Baja" ? "bad" : "acc"}">${est}${est === "Baja" ? " " + fmtD(p.baja).slice(0,5) : ""}</span>${p.baja && est !== "Baja" ? ` <span class="pill bad">Baja el ${fmtD(p.baja).slice(0,5)}</span>` : ""}</td></tr>`; }).join("")}</tbody></table></div>` : `<div class="empty">No hay personas que coincidan.</div>`}
   </div>`;
 }
 
@@ -719,7 +746,12 @@ document.addEventListener("click", async ev => {
     case "verSem": ui.semana = id; render(); window.scrollTo(0, 0); break;
     case "newPer": ui.editing.per = "nuevo"; render(); window.scrollTo(0, 0); break;
     case "editPer": ui.editing.per = id; render(); window.scrollTo(0, 0); break;
-    case "cancelPer": ui.editing.per = null; render(); break;
+    case "cancelPer": ui.editing.per = null; ui.bajaAbierta = null; render(); break;
+    case "abrirBaja": ui.bajaAbierta = ui.editing.per; render(); $("#bj_mot")?.focus(); break;
+    case "cerrarBaja": ui.bajaAbierta = null; render(); break;
+    case "bpsOk": marcarBps(id, el.dataset.tipo); break;
+    case "bpsUndo": marcarBps(id, el.dataset.tipo, true); break;
+    case "bpsVer": ui.bpsVer = !ui.bpsVer; render(); break;
     case "delPer": conf(async () => { await remove("personal", id); ui.editing.per = null; }); break;
     case "guardarProp": guardarPropinas(); break;
     case "editPago": ui.editing.pago = id; ui.pagando = null; render(); window.scrollTo(0, 0);
@@ -770,8 +802,14 @@ document.addEventListener("submit", async ev => {
     const old = S.adelantos.find(a => a.id === ui.editing.adel) || {};
     const rec = {empleado: per.nombre, personaId: per.id, fecha: d.fecha, monto, estado: d.estado, origen: d.origen || "Fondo de dueños", descontado: !!old.descontado, notas: d.notas.trim()};
     if (await save("adelantos", ui.editing.adel, rec)) { toast(ui.editing.adel ? "Adelanto actualizado" : "Adelanto agregado a " + per.nombre); ui.editing.adel = null; ui.adelPara = null; render(); }
+  } else if (f.id === "fBaja") {
+    const per = S.personal.find(x => x.id === ui.editing.per); if (!per) return;
+    if (!d.fecha || !d.motivo.trim()) { toast("Poné la fecha y el motivo"); return; }
+    if (await patch("personal", per.id, {baja: d.fecha, bajaMotivo: d.motivo.trim(), bajaBps: null, bajaBpsPor: null})) { toast(per.nombre + " quedó dada de baja"); ui.bajaAbierta = null; render(); }
   } else if (f.id === "fPer") {
-    const rec = {nombre: d.nombre.trim(), sector: d.sector, cargo: d.cargo.trim(), alta: d.alta || null, baja: d.baja || null, laudo: d.laudo === "Sí", horario: d.horario.trim(), contrato: d.contrato, notas: d.notas.trim()};
+    const rec = {nombre: d.nombre.trim(), sector: d.sector, cargo: d.cargo.trim(), alta: d.alta || null, laudo: d.laudo === "Sí", horario: d.horario.trim(), contrato: d.contrato, notas: d.notas.trim()};
+    if ("baja" in d) { rec.baja = d.baja || null; rec.bajaMotivo = (d.bajaMotivo || "").trim(); }
+    if (!rec.alta) { toast("Poné la fecha de ingreso"); return; }
     if (!rec.nombre) { toast("Poné el nombre"); return; }
     const nuevo = ui.editing.per === "nuevo"; const id = nuevo ? uid() : ui.editing.per;
     const old = S.personal.find(x => x.id === id);
@@ -845,7 +883,7 @@ function resumenPermisos(p) {
   if (p.rol === "admin") return "Todo";
   const ss = SECS.filter(([k]) => nivelDe(p, k) >= 1).map(([k, l]) => l + " (" + NIV_LBL[nivelDe(p, k)][1].toLowerCase() + ")");
   const pv = PRIV.filter(([g]) => privDe(p, g)).map(([, l]) => l.toLowerCase());
-  return (ss.join(", ") || "Nada") + (pv.length ? " · ve " + pv.join(", ") : "");
+  return (ss.join(", ") || "Nada") + (pv.length ? " · ve " + pv.join(", ") : "") + (p.permisos?.bps ? " · contador (altas y bajas BPS)" : "");
 }
 async function cargarPerfiles() {
   const {data, error} = await sb.from("perfiles").select("*").order("creado");
@@ -868,7 +906,10 @@ function vUsuarios() {
         <div class="tbl-wrap"><table><tbody>${SECS.map(([k, l]) => `<tr><td>${l}</td><td class="n"><select name="sec_${k}" id="eu_sec_${k}" aria-label="Permiso en ${l}">${NIV_LBL.map(([v, t], i) => `<option value="${v}" ${nivelDe(eu, k) === i ? "selected" : ""}>${t}</option>`).join("")}</select></td></tr>`).join("")}</tbody></table></div>
         <h3 style="margin:12px 0 4px">Datos privados del personal</h3>
         <p class="muted small" style="margin:0 0 8px">Solo si tiene acceso a Personal. Lo que no tildes no lo ve ni lo puede cambiar.</p>
-        <div class="btns">${PRIV.map(([g, l]) => `<label class="btns small"><input type="checkbox" name="priv_${g}" id="eu_priv_${g}" ${privDe(eu, g) ? "checked" : ""} style="width:auto"> ${l}</label>`).join("")}</div></div>`}
+        <div class="btns">${PRIV.map(([g, l]) => `<label class="btns small"><input type="checkbox" name="priv_${g}" id="eu_priv_${g}" ${privDe(eu, g) ? "checked" : ""} style="width:auto"> ${l}</label>`).join("")}</div>
+        <h3 style="margin:12px 0 4px">Contador</h3>
+        <label class="btns small"><input type="checkbox" name="bps" id="eu_bps" ${eu.permisos?.bps ? "checked" : ""} style="width:auto"> Ve las altas y bajas pendientes de BPS en Personal y las puede marcar como procesadas</label>
+        <p class="muted small" style="margin:4px 0 0">Para un contador: Personal en "Ver", y tildá Documento, teléfono y nacimiento y Cuenta bancaria, sin Email y domicilio.</p></div>`}
       <div class="btns wide"><button class="b primary" type="submit">Guardar cambios</button><button class="b" type="button" data-act="cancelEditUser">Cancelar</button>${yo ? `<span class="muted small">Tu propio permiso no se puede cambiar desde acá.</span>` : `<span class="muted small">Si cambiás el email o la contraseña, avisale a la persona.</span>`}</div>
     </form>
   </div>`; }
@@ -904,7 +945,7 @@ document.addEventListener("submit", async ev => {
     if (!err && id !== S.perfil.id) {
       const upd = {rol: d.rol, activo: d.activo === "si"};
       const eu = (S.perfiles || []).find(p => p.id === id);
-      if (eu && eu.rol !== "admin" && d.rol !== "admin") upd.permisos = {secciones: Object.fromEntries(SECS.map(([k]) => [k, d["sec_" + k] || "no"])), privado: Object.fromEntries(PRIV.map(([g]) => [g, d["priv_" + g] === "on"]))};
+      if (eu && eu.rol !== "admin" && d.rol !== "admin") upd.permisos = {secciones: Object.fromEntries(SECS.map(([k]) => [k, d["sec_" + k] || "no"])), privado: Object.fromEntries(PRIV.map(([g]) => [g, d["priv_" + g] === "on"])), bps: d.bps === "on"};
       const r = await sb.from("perfiles").update(upd).eq("id", id); err = r.error; }
     btn.disabled = false;
     if (err) { toast(err.message || "No se pudo guardar"); return; }

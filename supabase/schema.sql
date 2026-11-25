@@ -301,3 +301,44 @@ alter table public.pagos add column if not exists repetir text;
 -- adelantos unidos a la ficha de la persona (24/11/2026)
 alter table public.adelantos add column if not exists "personaId" text references public.personal(id) on delete set null;
 update public.adelantos a set "personaId" = p.id from public.personal p where p.nombre = a.empleado and a."personaId" is null;
+
+-- Altas y bajas para BPS (25/11/2026)
+alter table public.personal
+  add column if not exists "bajaMotivo" text,
+  add column if not exists "altaBps" date,
+  add column if not exists "altaBpsPor" text,
+  add column if not exists "bajaBps" date,
+  add column if not exists "bajaBpsPor" text;
+
+-- datos privados nuevos: nacimiento (grupo documentos), email y domicilio (grupo contacto)
+alter table public."personalPrivado" drop constraint if exists "personalPrivado_campo_check";
+alter table public."personalPrivado" add constraint "personalPrivado_campo_check"
+  check (campo in ('sueldoLiquido','sueldoNominal','documento','telefono','cuenta','nacimiento','email','domicilio'));
+create or replace function public.grupo_privado(campo text) returns text language sql immutable as $$
+  select case when campo in ('sueldoLiquido','sueldoNominal') then 'sueldos'
+              when campo in ('documento','telefono','nacimiento') then 'documentos'
+              when campo in ('email','domicilio') then 'contacto'
+              else 'cuentas' end
+$$;
+
+-- marcar una alta o baja como procesada en BPS: admin o quien tenga permisos.bps
+create or replace function public.marcar_bps(p_persona text, p_tipo text, p_deshacer boolean default false)
+returns void language plpgsql security definer set search_path = public as $$
+declare yo record;
+begin
+  select * into yo from public.perfiles where id = auth.uid() and activo;
+  if yo is null or not (yo.rol = 'admin' or coalesce((yo.permisos->>'bps')::boolean, false)) then
+    raise exception 'Sin permiso para marcar BPS';
+  end if;
+  if p_tipo = 'alta' then
+    update public.personal set "altaBps" = case when p_deshacer then null else current_date end,
+      "altaBpsPor" = case when p_deshacer then null else yo.nombre end, actualizado = now() where id = p_persona;
+  elsif p_tipo = 'baja' then
+    update public.personal set "bajaBps" = case when p_deshacer then null else current_date end,
+      "bajaBpsPor" = case when p_deshacer then null else yo.nombre end, actualizado = now() where id = p_persona;
+  else
+    raise exception 'Tipo inválido';
+  end if;
+end $$;
+revoke all on function public.marcar_bps(text, text, boolean) from public;
+grant execute on function public.marcar_bps(text, text, boolean) to authenticated;
