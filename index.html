@@ -95,6 +95,7 @@ tr.click:hover td{background:var(--surface-2)}
 .ficha dt{color:var(--mute,#7a746c);font-size:.85em;padding-top:1px}.ficha dd .pill{white-space:normal;display:inline-block}.ficha dd{margin:0;min-width:0;overflow-wrap:anywhere}
 .recien{margin-top:10px;padding:8px 10px;border-radius:8px;background:var(--good-soft,#e8f3ec)}
 .lnk{color:inherit;text-decoration:underline;text-decoration-color:var(--line,#ccc);text-underline-offset:3px}.lnk:hover{text-decoration-color:currentColor}
+.card.plegada > form,.card.plegada > p.muted{display:none}
 .login{max-width:380px;margin:40px auto 0;display:grid;gap:12px}
 .login .logo-big{height:64px;width:auto;justify-self:center;border-radius:8px;background:#fff;padding:4px 8px}
 .who{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
@@ -146,7 +147,7 @@ const S = {cfg: {cotizacion: 41, diasAcreditacion: 15}, ready: {}, canWrite: tru
 COLS.forEach(c => S[c] = []);
 let db = null, dl = true;
 let tab = "resumen";
-const ui = {editing: {}, propDraft: {}, formasDraft: null, formasFor: null, gruposAbiertos: new Set(), adelPara: null, perEditar: false, bajaAbierta: null, bpsVer: false, bpsRecien: [], personalQ: "", personalEstado: "activos", personalSector: "", ocultarSueldos: true, pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
+const ui = {editing: {}, propDraft: {}, formasDraft: null, formasFor: null, gruposAbiertos: new Set(), abiertos: new Set(), adelPara: null, perEditar: false, bajaAbierta: null, bpsVer: false, bpsRecien: [], personalQ: "", personalEstado: "activos", personalSector: "", ocultarSueldos: true, pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
 
 const TABS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retiros de caja"],["adelantos","Adelantos"],["propinas","Propinas"],["personal","Personal"],["pagos","Pagos y vencimientos"],["ajustes","Ajustes"],["usuarios","Usuarios"]];
 
@@ -186,6 +187,9 @@ function semanaPropina(lunes) {
   const acred = addDays(dias[6], S.cfg.diasAcreditacion || 15);
   return {dias: rows, total, acred, entrega: nextMonday(acred)};
 }
+const plegCard = (key, titulo, fijo) => fijo ? `<div class="card"><h3>${titulo}</h3>` : (ui.abiertos.has(key)
+  ? `<div class="card"><button type="button" class="plegable" data-act="plegar" data-id="${key}" aria-expanded="true"><h3 style="margin:0">${titulo}</h3><span class="muted">▾</span></button>`
+  : `<div class="card plegada"><button type="button" class="plegable" data-act="plegar" data-id="${key}" aria-expanded="false"><h3 style="margin:0">${titulo}</h3><span class="muted">▸</span></button>`);
 const sortBy = (arr, k, dir = 1) => [...arr].sort((a, b) => (a[k] ?? "") < (b[k] ?? "") ? -dir : (a[k] ?? "") > (b[k] ?? "") ? dir : 0);
 
 /* ---------- escritura ---------- */
@@ -429,7 +433,7 @@ function vCaja() {
     <div class="card tile"><div class="label">Egresos</div><div class="num neg">${pesos(c.egr)}</div><div class="note">Incluye ${pesos(c.adel)} de adelantos</div></div>
     <div class="card tile"><div class="label">Gastos pendientes de pago</div><div class="num">${pesos(movPend().reduce((t, m) => t + enPesos(m.monto, m.moneda, m.cotizacion), 0))}</div><div class="note">${movPend().length ? movPend().length + " sin pagar, no se descuentan todavía" : "Ninguno"}</div></div>
   </div>
-  <div class="card"><h3>${e.id ? "Editar movimiento" : "Nuevo movimiento"}</h3>
+  ${plegCard("mov", e.id ? "Editar movimiento" : "Nuevo movimiento", !!e.id)}
     <form class="f" id="fMov">
       <label class="fl">Fecha<input id="m_fecha" name="fecha" type="date" required value="${esc(e.fecha || today())}"></label>
       <label class="fl">Turno<select id="m_turno" name="turno">${opts(["Día","Noche"], e.turno || (new Date().getHours() < 17 ? "Día" : "Noche"))}</select></label>
@@ -467,7 +471,7 @@ function arqueoCard(cuenta, saldo, usdSaldo) {
   const conUsd = usdSaldo != null;
   const dif = (a, k1, k2) => (a[k1] || 0) - (a[k2] || 0);
   const pill = (d, fmt) => `<span class="pill ${d === 0 ? "good" : Math.abs(d) < 500 ? "warn" : "bad"}">${d > 0 ? "+" : ""}${fmt(d)}</span>`;
-  return `<div class="card"><h3>${ea.id ? "Editar arqueo" : "Arqueo"}</h3>
+  return `${plegCard("arq-" + cuenta, ea.id ? "Editar arqueo" : "Arqueo", !!ea.id)}
     <p class="muted small" style="margin:0 0 10px">Contá la plata de ${cuenta === "Fondo de dueños" ? "los dueños" : "los retiros de caja"} que hay en la caja fuerte y anotala acá. Al registrarlo, el saldo de la app pasa a ser lo que contaste.</p>
     <form class="f" id="fArq">
       <input type="hidden" name="cuenta" value="${esc(cuenta)}">
@@ -494,7 +498,7 @@ function vFuerte() {
     <div class="card tile"><div class="label">Dólares</div><div class="num">${usd(f.usd)}</div><div class="note">a $${nf0.format(S.cfg.cotizacion)} = ${pesos(f.usd * S.cfg.cotizacion)}</div></div>
     <div class="card tile"><div class="label">Total en pesos</div><div class="num">${pesos(f.equiv)}</div><div class="note">Cotización fija, se cambia en Ajustes</div></div>
   </div>
-  <div class="card"><h3>${e.id ? "Editar retiro" : "Nuevo retiro de la caja del restorán"}</h3>
+  ${plegCard("cf", e.id ? "Editar retiro" : "Nuevo retiro de la caja del restorán", !!e.id)}
     <form class="f" id="fCF">
       <label class="fl">Fecha<input id="cf_fecha" name="fecha" type="date" required value="${esc(e.fecha || today())}"></label>
       <label class="fl">Tipo<select id="cf_tipo" name="tipo">${opts(["Entrada","Salida"], e.tipo || "Entrada")}</select></label>
@@ -534,7 +538,7 @@ function vAdelantos() {
     <div class="card tile"><div class="label">A descontar del próximo sueldo</div><div class="num">${pesos(sinDesc.reduce((s,a)=>s+(a.monto||0),0))}</div><div class="note">${Object.keys(porEmp).length} personas</div></div>
     <div class="card tile"><div class="label">Pendientes de entregar</div><div class="num">${pesos(pend.reduce((s,a)=>s+(a.monto||0),0))}</div><div class="note">${pend.map(a => esc(nombreAdel(a).split(" ")[0])).join(", ") || "Ninguno"}</div></div>
   </div>
-  <div class="card"><h3>${e.id ? "Editar adelanto" : "Nuevo adelanto"}</h3>
+  ${plegCard("adel", e.id ? "Editar adelanto" : "Nuevo adelanto", !!e.id || !!ui.adelPara)}
     <form class="f" id="fAdel">
       <label class="fl">Persona<select id="ad_emp" name="personaId" required><option value="">Elegí…</option>${(() => { const selId = e.id ? (e.personaId || S.personal.find(p => p.nombre === e.empleado)?.id) : ui.adelPara; return sortBy(S.personal, "nombre").filter(p => estadoPersona(p) !== "Baja" || p.id === selId).map(p => `<option value="${esc(p.id)}" ${p.id === selId ? "selected" : ""}>${esc(p.nombre)}</option>`).join(""); })()}</select></label>
       ${niv("personal") >= 2 ? `<div class="fl small muted" style="align-self:end">¿No está en la lista? <button class="b small" type="button" data-act="perDesdeAdel">Crearla en Personal</button></div>` : ""}
@@ -711,7 +715,7 @@ function vPagos() {
     <div class="card tile"><div class="label">Pendiente en dólares</div><div class="num">${usd(tU)}</div><div class="note">= ${pesos(tU * S.cfg.cotizacion)} a $${nf0.format(S.cfg.cotizacion)}</div></div>
     <div class="card tile"><div class="label">Vencidos</div><div class="num ${venc.length ? "neg" : ""}">${venc.length}</div><div class="note">${pend.filter(p => p.monto == null).length} sin monto definido</div></div>
   </div>
-  <div class="card"><h3>${e.id ? (e.estado === "Pagado" ? "Detalle del pago" : "Editar pago") : "Nuevo pago o vencimiento"}</h3>
+  ${plegCard("pago", e.id ? (e.estado === "Pagado" ? "Detalle del pago" : "Editar pago") : "Nuevo pago o vencimiento", !!e.id)}
     ${e.estado === "Pagado" && !formasDe(e).length ? `<p class="muted small" style="margin:0 0 10px">Pagado el ${fmtD(e.fechaPago)} · ${esc(e.pagadoDesde ? desdeLbl(e.pagadoDesde) : "sin dato de dónde salió")}. Si cambiás el monto, la fecha o de dónde salió la plata, la app corrige el descuento solo.</p>` : ""}
     <form class="f" id="fPago">
       <label class="fl">Proveedor u organismo<input id="pg_prov" name="proveedor" list="dlProv" required value="${esc(e.proveedor || "")}"></label>
@@ -794,6 +798,7 @@ document.addEventListener("click", async ev => {
     case "verSem": ui.semana = id; render(); window.scrollTo(0, 0); break;
     case "newPer": ui.editing.per = "nuevo"; render(); $("#fPer input[name=nombre]")?.focus(); break;
     case "editPer": ui.editing.per = id; ui.perEditar = false; ui.bajaAbierta = null; render(); window.scrollTo(0, 0); break;
+    case "plegar": { const k = id; if (ui.abiertos.has(k)) ui.abiertos.delete(k); else ui.abiertos.add(k); render(); if (ui.abiertos.has(k)) { const b = document.querySelector(`[data-act="plegar"][data-id="${CSS.escape(k)}"]`); b?.closest(".card")?.querySelector("form input:not([type=hidden]):not([readonly]), form select")?.focus(); } break; }
     case "editarPer": ui.perEditar = true; render(); $("#pe_nom")?.focus(); break;
     case "bpsFicha": ev.preventDefault?.(); ui.editing.per = id; ui.perEditar = niv("personal") >= 3; ui.bajaAbierta = null; render(); { const f = $("#fPer") || $(".ficha"); f?.scrollIntoView({block: "start"}); } break;
     case "verPer": ui.perEditar = false; render(); break;
@@ -966,7 +971,7 @@ function vUsuarios() {
     </form>
   </div>`; }
   return `
-  <div class="card"><h3>Nuevo usuario</h3>
+  ${plegCard("usr", "Nuevo usuario", false)}
     <form class="f" id="fUser">
       <label class="fl">Nombre<input id="u_nom" name="nombre" required autocomplete="off"></label>
       <label class="fl">Email (es el usuario para entrar)<input id="u_mail" name="email" type="email" required autocomplete="off"></label>
