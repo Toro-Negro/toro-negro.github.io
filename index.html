@@ -153,12 +153,12 @@ const TABS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retir
 /* ---------- cálculos ---------- */
 const enPesos = (monto, moneda, cot) => moneda === "US$" ? (monto || 0) * (cot || S.cfg.cotizacion) : (monto || 0);
 function cajaTotales(desde) {
-  let ing = 0, egr = 0, ajm = 0;
-  S.movimientos.forEach(m => { if (desde && m.fecha < desde) return; if (m.estado === "Pendiente de pago") return; const v = enPesos(m.monto, m.moneda, m.cotizacion); if (m.categoria === "Ajuste") ajm += m.tipo === "Ingreso" ? v : -v; else if (m.tipo === "Ingreso") ing += v; else egr += v; });
+  let ing = 0, egr = 0, ajm = 0, us = 0;
+  S.movimientos.forEach(m => { if (desde && m.fecha < desde) return; if (m.estado === "Pendiente de pago") return; if (m.moneda === "US$") { us += (m.tipo === "Ingreso" ? 1 : -1) * (m.monto || 0); return; } const v = m.monto || 0; if (m.categoria === "Ajuste") ajm += m.tipo === "Ingreso" ? v : -v; else if (m.tipo === "Ingreso") ing += v; else egr += v; });
   let adel = 0;
   S.adelantos.forEach(a => { if (a.estado !== "Entregado" || deRetiros(a)) return; if (desde && a.fecha < desde) return; adel += a.monto || 0; });
-  const aj = desde ? 0 : ajusteArq("Fondo de dueños").pesos;
-  return {ing, egr: egr + adel, adel, ajuste: aj, ajusteMov: ajm, saldo: ing - egr - adel + aj + ajm};
+  const ajA = desde ? {pesos: 0, usd: 0} : ajusteArq("Fondo de dueños"), aj = ajA.pesos;
+  return {ing, egr: egr + adel, adel, ajuste: aj, ajusteMov: ajm, saldo: ing - egr - adel + aj + ajm, usd: us + ajA.usd};
 }
 function ajusteArq(cuenta) {
   let pesos = 0, usd = 0;
@@ -389,7 +389,7 @@ function vResumen() {
   const ps = semanaPropina(monday(today()));
   return `
   <div class="grid">
-    ${niv("caja") ? `<div class="card tile"><div class="label">Fondo de dueños</div><div class="num">${pesos(c.saldo)}</div><div class="note">Quedan de ${pesos(c.ing)} recibidos · gastado ${pesos(c.egr)}${c.ajuste ? " · ajuste por arqueo " + pesos(c.ajuste) : ""}${c.ajusteMov ? " · ajustes " + pesos(c.ajusteMov) : ""}${movPend().length ? " · " + pesos(movPend().reduce((t, m) => t + enPesos(m.monto, m.moneda, m.cotizacion), 0)) + " por pagar" : ""}</div></div>` : ""}
+    ${niv("caja") ? `<div class="card tile"><div class="label">Fondo de dueños</div><div class="num">${pesos(c.saldo)}</div>${c.usd ? `<div class="num" style="font-size:1.1em">+ ${usd(c.usd)}</div>` : ""}<div class="note">Quedan de ${pesos(c.ing)} recibidos · gastado ${pesos(c.egr)}${c.ajuste ? " · ajuste por arqueo " + pesos(c.ajuste) : ""}${c.ajusteMov ? " · ajustes " + pesos(c.ajusteMov) : ""}${movPend().length ? " · " + pesos(movPend().reduce((t, m) => t + enPesos(m.monto, m.moneda, m.cotizacion), 0)) + " por pagar" : ""}</div></div>` : ""}
     ${niv("fuerte") ? `<div class="card tile"><div class="label">Retiros de caja</div><div class="num">${pesos(f.pesos)}</div><div class="note">y ${usd(f.usd)} · total ${pesos(f.equiv)} a $${nf0.format(S.cfg.cotizacion)}</div></div>` : ""}
     ${niv("adelantos") ? `<div class="card tile"><div class="label">Adelantos a descontar</div><div class="num">${pesos(adel)}</div><div class="note">${pendEnt.length ? pendEnt.length + " sin entregar (" + pesos(pendEnt.reduce((s,a)=>s+(a.monto||0),0)) + ")" : "Todos entregados"}</div></div>` : ""}
     ${niv("pagos") ? `<div class="card tile"><div class="label">Deuda pendiente</div><div class="num">${pesos(deudaP)}</div><div class="note">y ${usd(deudaU)} · ${pend.length} pagos</div></div>` : ""}
@@ -424,7 +424,7 @@ function vCaja() {
   ], "fecha", -1).filter(m => !ui.movSemana || m.fecha >= ui.movSemana);
   return `
   <div class="grid">
-    <div class="card tile"><div class="label">Quedan del fondo</div><div class="num">${pesos(c.saldo)}</div><div class="note">Plata que te dieron los dueños, guardada en la caja fuerte${c.ajuste ? " · incluye ajuste por arqueo de " + pesos(c.ajuste) : ""}${c.ajusteMov ? " · incluye ajustes de " + pesos(c.ajusteMov) + " (ver movimientos)" : ""}</div></div>
+    <div class="card tile"><div class="label">Quedan del fondo</div><div class="num">${pesos(c.saldo)}</div>${c.usd ? `<div class="num" style="font-size:1.1em">+ ${usd(c.usd)}</div>` : ""}<div class="note">Plata que te dieron los dueños, guardada en la caja fuerte${c.ajuste ? " · incluye ajuste por arqueo de " + pesos(c.ajuste) : ""}${c.ajusteMov ? " · incluye ajustes de " + pesos(c.ajusteMov) + " (ver movimientos)" : ""}</div></div>
     <div class="card tile"><div class="label">Recibido</div><div class="num pos">${pesos(c.ing)}</div>${c.ajusteMov ? `<div class="note">Aportes de los dueños. El ajuste de ${pesos(c.ajusteMov)} va aparte, en movimientos.</div>` : ""}</div>
     <div class="card tile"><div class="label">Egresos</div><div class="num neg">${pesos(c.egr)}</div><div class="note">Incluye ${pesos(c.adel)} de adelantos</div></div>
     <div class="card tile"><div class="label">Gastos pendientes de pago</div><div class="num">${pesos(movPend().reduce((t, m) => t + enPesos(m.monto, m.moneda, m.cotizacion), 0))}</div><div class="note">${movPend().length ? movPend().length + " sin pagar, no se descuentan todavía" : "Ninguno"}</div></div>
@@ -454,13 +454,14 @@ function vCaja() {
     ${rows.map(m => `<tr class="click" data-act="${m._k === "mov" ? "editMov" : "goAdel"}" data-id="${m.id}"><td>${fmtD(m.fecha)}${m.turno ? `<div class="muted small">${esc(m.turno)}</div>` : ""}</td><td>${esc(m.persona || "")}<div class="muted small">${esc([m.concepto, m.notas].filter(Boolean).join(" · "))}</div></td><td><span class="pill ${m.tipo === "Ingreso" ? "good" : "mute"}">${esc(m.categoria)}</span>${m.estado === "Pendiente de pago" ? ` <span class="pill warn">Pendiente de pago</span>` : ""}</td><td class="n ${m.tipo === "Ingreso" ? "pos" : ""}">${m.tipo === "Ingreso" ? "+" : "−"} ${money(m.monto, m.moneda)}${m.estado === "Pendiente de pago" ? `<div style="margin-top:4px"><button class="b small" data-act="pagarMov" data-id="${m.id}" ${roOnly(3)}>Marcar pagado</button></div>` : ""}</td></tr>`).join("")}
     </tbody></table></div>` : `<div class="empty">No hay movimientos en este período. Cargá el primero con el formulario de arriba.</div>`}
   </div>
-  ${arqueoCard("Fondo de dueños", c.saldo, null)}`;
+  ${arqueoCard("Fondo de dueños", c.saldo, Math.round(c.usd * 100) / 100)}`;
 }
 
 
 const cuentaArq = a => a.cuenta || "Fondo de dueños";
 function arqueoCard(cuenta, saldo, usdSaldo) {
-  const arq = sortBy(S.arqueos.filter(a => cuentaArq(a) === cuenta), "fecha", -1);
+  const arq = S.arqueos.filter(a => cuentaArq(a) === cuenta).sort((a, b) => (b.fecha || "").localeCompare(a.fecha || "") || (b.creado || b.actualizado || "").localeCompare(a.creado || a.actualizado || ""));
+  const hora = a => { const t = a.creado || a.actualizado; if (!t) return ""; const d = new Date(t); return isNaN(d) ? "" : d.toLocaleTimeString("es-UY", {hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Montevideo"}); };
   const ea0 = S.arqueos.find(a => a.id === ui.editing.arq);
   const ea = ea0 && cuentaArq(ea0) === cuenta ? ea0 : {};
   const conUsd = usdSaldo != null;
@@ -479,7 +480,7 @@ function arqueoCard(cuenta, saldo, usdSaldo) {
       <label class="fl wide">Comentario<input id="a_com" name="comentario" value="${esc(ea.comentario || "")}"></label>
       <div class="btns wide"><button class="b primary" type="submit" ${roOnly(ea.id ? 3 : 2)}>${ea.id ? "Guardar arqueo" : "Registrar arqueo"}</button>${ea.id ? `<button class="b" type="button" data-act="cancelArq">Cancelar</button><button class="b danger" type="button" ${roOnly(3)} data-act="delArq" data-id="${ea.id}">Borrar</button>` : ""}</div>
     </form>
-    ${arq.length ? `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Fecha</th><th>Responsable</th><th class="n">Según app</th><th class="n">Contado</th><th class="n">Diferencia</th></tr></thead><tbody>${arq.map(a => `<tr class="click" data-act="editArq" data-id="${a.id}"><td>${fmtD(a.fecha)}</td><td>${esc(a.responsable || "—")}<div class="muted small">${esc(a.comentario || "")}</div></td><td class="n">${pesos(a.saldoSistema)}${a.contadoUsd != null ? `<div class="muted small">${usd(a.saldoUsd)}</div>` : ""}</td><td class="n">${pesos(a.contado)}${a.contadoUsd != null ? `<div class="muted small">${usd(a.contadoUsd)}</div>` : ""}</td><td class="n">${pill(dif(a, "contado", "saldoSistema"), pesos)}${a.contadoUsd != null ? `<div style="margin-top:4px">${pill(dif(a, "contadoUsd", "saldoUsd"), usd)}</div>` : ""}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">Todavía no hay arqueos de ${cuenta === "Fondo de dueños" ? "este fondo" : "los retiros"}.</div>`}
+    ${arq.length ? `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Fecha</th><th>Responsable</th><th class="n">Según app</th><th class="n">Contado</th><th class="n">Diferencia</th></tr></thead><tbody>${arq.map(a => `<tr class="click" data-act="editArq" data-id="${a.id}"><td>${fmtD(a.fecha)}${hora(a) ? `<div class="muted small">${hora(a)} h</div>` : ""}</td><td>${esc(a.responsable || "—")}<div class="muted small">${esc(a.comentario || "")}</div></td><td class="n">${pesos(a.saldoSistema)}${a.contadoUsd != null ? `<div class="muted small">${usd(a.saldoUsd)}</div>` : ""}</td><td class="n">${pesos(a.contado)}${a.contadoUsd != null ? `<div class="muted small">${usd(a.contadoUsd)}</div>` : ""}</td><td class="n">${pill(dif(a, "contado", "saldoSistema"), pesos)}${a.contadoUsd != null ? `<div style="margin-top:4px">${pill(dif(a, "contadoUsd", "saldoUsd"), usd)}</div>` : ""}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">Todavía no hay arqueos de ${cuenta === "Fondo de dueños" ? "este fondo" : "los retiros"}.</div>`}
   </div>`;
 }
 

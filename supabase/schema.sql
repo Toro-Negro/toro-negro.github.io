@@ -358,3 +358,6 @@ create or replace function public.grupo_privado(campo text) returns text languag
               when campo in ('email','domicilio','emergenciaNombre','emergenciaTel') then 'contacto'
               else 'cuentas' end
 $$;
+
+-- Hora de cada arqueo (25/11/2026)
+alter table public.arqueos add column if not exists creado timestamptz default now();
