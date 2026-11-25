@@ -89,6 +89,10 @@ tr.click:hover td{background:var(--surface-2)}
 @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
 .plegable{all:unset;box-sizing:border-box;display:flex;width:100%;justify-content:space-between;align-items:center;cursor:pointer;margin-bottom:10px}
 .card.plegada{padding-top:10px;padding-bottom:10px}.card.plegada .plegable{margin:0}.plegable:focus-visible{outline:2px solid var(--acc,#d4561e);outline-offset:4px;border-radius:4px}
+.ficha .bloques{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:12px}
+.ficha .bloque{border:1px solid var(--line,#e5e2dc);border-radius:10px;padding:10px 12px;min-width:0}
+.ficha .bloque h3{margin:0 0 8px}.ficha dl{display:grid;grid-template-columns:auto 1fr;gap:5px 12px;margin:0}
+.ficha dt{color:var(--mute,#7a746c);font-size:.85em;padding-top:1px}.ficha dd .pill{white-space:normal;display:inline-block}.ficha dd{margin:0;min-width:0;overflow-wrap:anywhere}
 .login{max-width:380px;margin:40px auto 0;display:grid;gap:12px}
 .login .logo-big{height:64px;width:auto;justify-self:center;border-radius:8px;background:#fff;padding:4px 8px}
 .who{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
@@ -140,7 +144,7 @@ const S = {cfg: {cotizacion: 41, diasAcreditacion: 15}, ready: {}, canWrite: tru
 COLS.forEach(c => S[c] = []);
 let db = null, dl = true;
 let tab = "resumen";
-const ui = {editing: {}, propDraft: {}, formasDraft: null, formasFor: null, gruposAbiertos: new Set(), adelPara: null, bajaAbierta: null, bpsVer: false, personalQ: "", personalEstado: "activos", personalSector: "", ocultarSueldos: true, pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
+const ui = {editing: {}, propDraft: {}, formasDraft: null, formasFor: null, gruposAbiertos: new Set(), adelPara: null, perEditar: false, bajaAbierta: null, bpsVer: false, personalQ: "", personalEstado: "activos", personalSector: "", ocultarSueldos: true, pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
 
 const TABS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retiros de caja"],["adelantos","Adelantos"],["propinas","Propinas"],["personal","Personal"],["pagos","Pagos y vencimientos"],["ajustes","Ajustes"],["usuarios","Usuarios"]];
 
@@ -316,7 +320,7 @@ const opts = (list, sel) => list.map(o => `<option ${o === sel ? "selected" : ""
 const CATS = ["Aporte de socio","Venta","Jornal","Sueldo","Proveedor","Compra","Otro"];
 const NIV = {no: 0, ver: 1, cargar: 2, editar: 3};
 const SECS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retiros de caja"],["adelantos","Adelantos"],["propinas","Propinas"],["personal","Personal"],["pagos","Pagos y vencimientos"]];
-const PRIV = [["sueldos","Sueldos"],["documentos","Documento, teléfono y nacimiento"],["cuentas","Cuenta bancaria"],["contacto","Email y domicilio"]];
+const PRIV = [["sueldos","Sueldos"],["documentos","Documento, teléfono y nacimiento"],["cuentas","Cuenta bancaria"],["contacto","Email, domicilio y contacto de emergencia"]];
 function nivelDe(perfil, sec) {
   if (!perfil) return 0;
   if (perfil.rol === "admin") return 3;
@@ -330,7 +334,13 @@ const privDe = (perfil, g) => perfil?.rol === "admin" || !!perfil?.permisos?.pri
 const priv = g => privDe(S.perfil, g);
 const roOnly = (need = 2) => niv(tab) >= need ? "" : "disabled";
 const adminOnly = () => S.perfil?.rol === "admin" ? "" : "disabled";
-const PRIV_CAMPOS = {sueldoLiquido: "sueldos", sueldoNominal: "sueldos", documento: "documentos", telefono: "documentos", nacimiento: "documentos", cuenta: "cuentas", email: "contacto", domicilio: "contacto"};
+const PRIV_CAMPOS = {sueldoLiquido: "sueldos", sueldoNominal: "sueldos", documento: "documentos", telefono: "documentos", nacimiento: "documentos", cuenta: "cuentas", banco: "cuentas", email: "contacto", domicilio: "contacto", emergenciaNombre: "contacto", emergenciaTel: "contacto"};
+const nombrePila = p => { const n = p.nombre || "", a = (p.apellido || "").trim(); return a && n.endsWith(" " + a) ? n.slice(0, -a.length).trim() : n; };
+const difMeses = (a, b) => { const x = parseISO(a), y = parseISO(b); let m = (y.getFullYear() - x.getFullYear()) * 12 + y.getMonth() - x.getMonth(); if (y.getDate() < x.getDate()) m--; return m; };
+const edadTxt = f => f ? Math.floor(difMeses(f, today()) / 12) + " años" : "";
+const antigTxt = (a, hasta) => { if (!a) return ""; const m = difMeses(a, hasta || today()); if (m < 1) { const d = Math.round((parseISO(hasta || today()) - parseISO(a)) / 864e5); return d <= 0 ? "empieza hoy o más adelante" : d + (d === 1 ? " día" : " días"); } const y = Math.floor(m / 12), r = m % 12; return [y ? y + (y === 1 ? " año" : " años") : "", r ? r + (r === 1 ? " mes" : " meses") : ""].filter(Boolean).join(" y "); };
+const carneEst = f => { if (!f) return {cls: "mute", txt: "Sin cargar"}; const d = Math.round((parseISO(f) - parseISO(today())) / 864e5); return d < 0 ? {cls: "bad", txt: "Vencido el " + fmtD(f), alerta: true} : d <= 30 ? {cls: "warn", txt: "Vence el " + fmtD(f) + (d === 0 ? " (hoy)" : " (en " + d + (d === 1 ? " día)" : " días)")), alerta: true} : {cls: "good", txt: "Vigente hasta " + fmtD(f)}; };
+const CARNES = [["carneSalud", "Carné de salud"], ["carneManipulador", "Carné de manipulador"]];
 const puedeBps = () => S.perfil?.rol === "admin" || !!S.perfil?.permisos?.bps;
 const bpsPend = () => [
   ...S.personal.filter(p => p.alta && !p.altaBps).map(p => ({p, tipo: "alta", fecha: p.alta})),
@@ -345,7 +355,7 @@ function mergePriv() {
   S.personal.forEach(p => { const x = m[p.id] || {};
     p.sueldoLiquido = x.sueldoLiquido != null && x.sueldoLiquido !== "" ? Number(x.sueldoLiquido) : null;
     p.sueldoNominal = x.sueldoNominal != null && x.sueldoNominal !== "" ? Number(x.sueldoNominal) : null;
-    p.documento = x.documento || ""; p.telefono = x.telefono || ""; p.cuenta = x.cuenta || ""; p.nacimiento = x.nacimiento || ""; p.email = x.email || ""; p.domicilio = x.domicilio || ""; });
+    p.documento = x.documento || ""; p.telefono = x.telefono || ""; p.cuenta = x.cuenta || ""; p.nacimiento = x.nacimiento || ""; p.email = x.email || ""; p.domicilio = x.domicilio || ""; p.banco = x.banco || ""; p.emergenciaNombre = x.emergenciaNombre || ""; p.emergenciaTel = x.emergenciaTel || ""; });
 }
 async function guardarPriv(pid, d, old) {
   for (const campo of Object.keys(PRIV_CAMPOS)) {
@@ -599,7 +609,8 @@ function vPersonal() {
   const n = S.personal.filter(p => estadoPersona(p) !== "Baja").length;
   const form = p => `<div class="card">${p.id ? `<h3>Ficha de ${esc(p.nombre)}</h3>` : `<button type="button" class="plegable" data-act="cancelPer" aria-expanded="true"><h3 style="margin:0">Nueva persona</h3><span class="muted">▾</span></button>`}
     <form class="f" id="fPer">
-      <label class="fl wide">Nombre<input id="pe_nom" name="nombre" required value="${esc(p.nombre || "")}"></label>
+      <label class="fl">Nombre<input id="pe_nom" name="nombre" required value="${esc(nombrePila(p))}"></label>
+      <label class="fl">Apellido<input id="pe_ape" name="apellido" value="${esc(p.apellido || "")}"></label>
       <label class="fl">Sector<select id="pe_sec" name="sector">${opts([...new Set(["Cocina","Sala","Barra","Limpieza","Caja","Administración","Otros", ...(p.sector ? [p.sector] : [])])], p.sector || "Cocina")}</select></label>
       <label class="fl">Cargo<input id="pe_car" name="cargo" value="${esc(p.cargo || "")}"></label>
       <label class="fl">Fecha de ingreso<input id="pe_alta" name="alta" type="date" required value="${esc(p.alta || (p.id ? "" : today()))}"></label>
@@ -613,20 +624,46 @@ function vPersonal() {
       <label class="fl">Teléfono<input id="pe_tel" name="telefono" value="${esc(p.telefono || "")}"></label>` : ""}
       ${priv("documentos") ? `<label class="fl">Fecha de nacimiento<input id="pe_nac" name="nacimiento" type="date" value="${esc(p.nacimiento || "")}"></label>` : ""}
       ${priv("contacto") ? `<label class="fl">Email<input id="pe_mail" name="email" type="email" value="${esc(p.email || "")}"></label>
-      <label class="fl wide">Domicilio<input id="pe_dom" name="domicilio" value="${esc(p.domicilio || "")}"></label>` : ""}
-      ${priv("cuentas") ? `<label class="fl">Cuenta bancaria<input id="pe_cta" name="cuenta" value="${esc(p.cuenta || "")}" placeholder="Banco y número"></label>` : ""}
+      <label class="fl wide">Domicilio<input id="pe_dom" name="domicilio" value="${esc(p.domicilio || "")}"></label>
+      <label class="fl">Contacto de emergencia<input id="pe_emn" name="emergenciaNombre" value="${esc(p.emergenciaNombre || "")}" placeholder="Nombre y vínculo"></label>
+      <label class="fl">Teléfono de emergencia<input id="pe_emt" name="emergenciaTel" value="${esc(p.emergenciaTel || "")}"></label>` : ""}
+      ${priv("cuentas") ? `<label class="fl">Banco<input id="pe_bco" name="banco" value="${esc(p.banco || "")}" placeholder="Ej.: BROU, Itaú"></label>
+      <label class="fl">Número de cuenta<input id="pe_cta" name="cuenta" value="${esc(p.cuenta || "")}"></label>` : ""}
+      <label class="fl">Carné de salud vence<input id="pe_csal" name="carneSalud" type="date" value="${esc(p.carneSalud || "")}"></label>
+      <label class="fl">Carné de manipulador vence<input id="pe_cman" name="carneManipulador" type="date" value="${esc(p.carneManipulador || "")}"></label>
       <label class="fl">Contrato firmado<select id="pe_con" name="contrato">${opts(["","Sí","No"], p.contrato || "")}</select></label>
       <label class="fl wide">Notas<input id="pe_not" name="notas" value="${esc(p.notas || "")}"></label>
-      ${p.id ? `<div class="wide"><h3 style="margin:8px 0 4px">Adelantos</h3>${(() => { const ad = sortBy(adelDe(p), "fecha", -1); return ad.length ? `<div class="tbl-wrap"><table><tbody>${ad.map(a => `<tr class="click" data-act="goAdel" data-id="${a.id}"><td>${fmtD(a.fecha)}</td><td>${pesos(a.monto)}</td><td><span class="pill ${a.estado !== "Entregado" ? "warn" : a.descontado ? "mute" : "acc"}">${a.estado !== "Entregado" ? "Pendiente de entrega" : a.descontado ? "Ya descontado" : "A descontar"}</span></td><td class="muted small">${esc(a.notas || "")}</td></tr>`).join("")}</tbody></table></div>` : `<div class="muted small">No tiene adelantos.</div>`; })()}
-        <div class="btns" style="margin-top:6px;align-items:center">${niv("adelantos") >= 2 && estadoPersona(p) !== "Baja" ? `<button class="b small" type="button" data-act="darAdel" data-id="${p.id}">+ Dar adelanto</button>` : ""}<span class="small muted">A descontar: <strong>${pesos(adelPendDesc(p.nombre))}</strong>${priv("sueldos") && p.sueldoLiquido && !ui.ocultarSueldos ? ` · líquido menos adelantos: <strong>${pesos(p.sueldoLiquido - adelPendDesc(p.nombre))}</strong>` : ""}</span></div></div>` : ""}
-      <div class="btns wide"><button class="b primary" type="submit" ${roOnly(p.id ? 3 : 2)}>${p.id ? "Guardar ficha" : "Agregar persona"}</button><button class="b" type="button" data-act="cancelPer">Cerrar</button>${p.id && !p.baja ? `<button class="b" type="button" ${roOnly(3)} data-act="abrirBaja">Dar de baja</button>` : ""}${p.id ? `<button class="b danger" type="button" ${roOnly(3)} data-act="delPer" data-id="${p.id}">Borrar</button>` : ""}</div>
-    </form>
-    ${p.id && !p.baja && ui.bajaAbierta === p.id ? `<form class="f" id="fBaja" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line, #ddd)">
+      <div class="btns wide"><button class="b primary" type="submit" ${roOnly(p.id ? 3 : 2)}>${p.id ? "Guardar ficha" : "Agregar persona"}</button><button class="b" type="button" data-act="${p.id ? "verPer" : "cancelPer"}">${p.id ? "Cancelar" : "Cerrar"}</button>${p.id ? `<button class="b danger" type="button" ${roOnly(3)} data-act="delPer" data-id="${p.id}">Borrar</button>` : ""}</div>
+    </form></div>`;
+  const bajaForm = p => `${p.id && !p.baja && ui.bajaAbierta === p.id ? `<form class="f" id="fBaja" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line, #ddd)">
       <div class="wide"><h3 style="margin:0">Dar de baja a ${esc(p.nombre)}</h3><p class="muted small" style="margin:4px 0 0">Queda en Personal como baja, no se borra, y le aparece al contador para procesarla en BPS.</p></div>
       <label class="fl">Último día trabajado<input id="bj_fecha" name="fecha" type="date" required value="${today()}"></label>
       <label class="fl wide">Motivo<input id="bj_mot" name="motivo" required placeholder="Ej.: renuncia, despido, fin de temporada"></label>
       <div class="btns wide"><button class="b danger" type="submit">Confirmar baja</button><button class="b" type="button" data-act="cerrarBaja">Cancelar</button></div>
-    </form>` : ""}</div>`;
+    </form>` : ""}`;
+  const fila = (k, v) => v ? `<dt>${k}</dt><dd>${v}</dd>` : "";
+  const bloque = (t, filas) => `<section class="bloque"><h3>${t}</h3>${filas.join("") ? `<dl>${filas.join("")}</dl>` : `<p class="muted small" style="margin:0">Sin datos cargados.</p>`}</section>`;
+  const ver = p => { const est = estadoPersona(p);
+    const bpsTxt = (f, por, tipo) => f ? `${tipo} procesada el ${fmtD(f)}${por && !/^Carga inicial/.test(por) ? " por " + esc(por) : ""}` : `<span class="pill warn">${tipo} pendiente</span>`;
+    const ped = s => s ? esc(s) : "";
+    return `<div class="card ficha">
+    <div class="toolbar"><div><h2 style="margin:0">${esc(p.nombre)}</h2><div class="muted small" style="margin-top:2px">${esc([p.sector === "Sala" ? "Salón" : p.sector, p.cargo].filter(Boolean).join(" · "))} <span class="pill ${est === "Activo" ? "good" : est === "Baja" ? "bad" : "acc"}">${est}</span></div></div>
+      <div class="btns">${niv("personal") >= 3 ? `<button class="b primary" type="button" data-act="editarPer">Editar</button>` : ""}${!p.baja && niv("personal") >= 3 ? `<button class="b" type="button" data-act="abrirBaja">Dar de baja</button>` : ""}<button class="b" type="button" data-act="cancelPer">Cerrar</button></div></div>
+    <div class="bloques">
+    ${bloque("Datos personales", [fila("Nombre", ped(nombrePila(p))), fila("Apellido", ped(p.apellido) || (nombrePila(p) === p.nombre ? `<span class="muted small">Sin separar (tocá Editar)</span>` : "")),
+      ...(priv("documentos") ? [fila("Cédula", ped(p.documento)), fila("Nacimiento", p.nacimiento ? fmtD(p.nacimiento) + ` <span class="muted small">(${edadTxt(p.nacimiento)})</span>` : ""), fila("Teléfono", ped(p.telefono))] : []),
+      ...(priv("contacto") ? [fila("Email", ped(p.email)), fila("Dirección", ped(p.domicilio)), fila("Emergencia", ped([p.emergenciaNombre, p.emergenciaTel].filter(Boolean).join(" · ")))] : [])])}
+    ${bloque("Trabajo", [fila("Sector", ped(p.sector === "Sala" ? "Salón" : p.sector)), fila("Cargo", ped(p.cargo)), fila("Ingreso", p.alta ? fmtD(p.alta) + ` <span class="muted small">(${antigTxt(p.alta, p.baja && p.baja < today() ? p.baja : null)})</span>` : ""),
+      p.baja ? fila("Baja", fmtD(p.baja) + (p.bajaMotivo ? " · " + esc(p.bajaMotivo) : "")) : "", fila("Horario", ped(p.horario)), fila("Laudo", p.laudo ? "Cobra por laudo" : "No"), fila("Contrato", p.contrato === "Sí" ? "Firmado" : p.contrato === "No" ? `<span class="pill warn">Sin firmar</span>` : ""),
+      fila("BPS", [p.alta ? bpsTxt(p.altaBps, p.altaBpsPor, "Alta") : "", p.baja ? bpsTxt(p.bajaBps, p.bajaBpsPor, "Baja") : ""].filter(Boolean).join("<br>"))])}
+    ${priv("sueldos") || priv("cuentas") ? bloque("Sueldo y banco", [...(priv("sueldos") ? [fila("Líquido", p.sueldoLiquido ? pesos(p.sueldoLiquido) : p.laudo ? "Laudo" : ""), fila("Nominal", p.sueldoNominal ? pesos(p.sueldoNominal) : "")] : []),
+      ...(priv("cuentas") ? [fila("Banco", ped(p.banco)), fila("Cuenta", ped(p.cuenta))] : [])]) : ""}
+    ${bloque("Papeles del restorán", CARNES.map(([k, l]) => { const c = carneEst(p[k]); return fila(l, `<span class="pill ${c.cls}">${c.txt}</span>`); }))}
+    ${p.notas ? bloque("Notas", [`<dd style="grid-column:1/-1">${esc(p.notas)}</dd>`]) : ""}
+    </div>
+    ${p.id ? `<div class="wide" style="margin-top:14px"><h3 style="margin:0 0 4px">Adelantos</h3>${(() => { const ad = sortBy(adelDe(p), "fecha", -1); return ad.length ? `<div class="tbl-wrap"><table><tbody>${ad.map(a => `<tr class="click" data-act="goAdel" data-id="${a.id}"><td>${fmtD(a.fecha)}</td><td>${pesos(a.monto)}</td><td><span class="pill ${a.estado !== "Entregado" ? "warn" : a.descontado ? "mute" : "acc"}">${a.estado !== "Entregado" ? "Pendiente de entrega" : a.descontado ? "Ya descontado" : "A descontar"}</span></td><td class="muted small">${esc(a.notas || "")}</td></tr>`).join("")}</tbody></table></div>` : `<div class="muted small">No tiene adelantos.</div>`; })()}
+        <div class="btns" style="margin-top:6px;align-items:center">${niv("adelantos") >= 2 && estadoPersona(p) !== "Baja" ? `<button class="b small" type="button" data-act="darAdel" data-id="${p.id}">+ Dar adelanto</button>` : ""}<span class="small muted">A descontar: <strong>${pesos(adelPendDesc(p.nombre))}</strong>${priv("sueldos") && p.sueldoLiquido && !ui.ocultarSueldos ? ` · líquido menos adelantos: <strong>${pesos(p.sueldoLiquido - adelPendDesc(p.nombre))}</strong>` : ""}</span></div></div>` : ""}
+    ${bajaForm(p)}</div>`; };
   const bp = puedeBps() ? bpsPend() : [];
   const procesadas = puedeBps() && ui.bpsVer ? [
     ...S.personal.filter(p => p.altaBps && !/^Carga inicial/.test(p.altaBpsPor || "")).map(p => ({p, tipo: "alta", f: p.altaBps, por: p.altaBpsPor})),
@@ -636,7 +673,7 @@ function vPersonal() {
     ${ui.bpsVer ? (procesadas.length ? `<h3 style="margin:12px 0 4px">Procesadas</h3><div class="tbl-wrap"><table><tbody>${procesadas.map(({p, tipo, f, por}) => `<tr><td><span class="pill ${tipo === "alta" ? "good" : "bad"}">${tipo === "alta" ? "Alta" : "Baja"}</span></td><td>${esc(p.nombre)}</td><td class="small muted">Procesada el ${fmtD(f)} por ${esc(por || "")}</td><td class="n"><button class="b small" type="button" data-act="bpsUndo" data-tipo="${tipo}" data-id="${p.id}">Volver a pendiente</button></td></tr>`).join("")}</tbody></table></div>` : `<p class="muted small">Todavía no se marcó ninguna desde la app.</p>`) : ""}</div>`;
   return `
   ${bpsCard}
-  ${e || ui.editing.per === "nuevo" ? form(e || {}) : roOnly() ? "" : `<div class="card plegada"><button type="button" class="plegable" data-act="newPer" aria-expanded="false"><h3 style="margin:0">Nueva persona</h3><span class="muted">▸</span></button></div>`}
+  ${e ? (ui.perEditar ? form(e) + bajaForm(e) : ver(e)) : ui.editing.per === "nuevo" ? form({}) : roOnly() ? "" : `<div class="card plegada"><button type="button" class="plegable" data-act="newPer" aria-expanded="false"><h3 style="margin:0">Nueva persona</h3><span class="muted">▸</span></button></div>`}
   <div class="card">
     <div class="toolbar"><h3 style="margin:0">${n} personas activas</h3>
       <div class="btns" style="flex:1;justify-content:flex-end">
@@ -645,7 +682,7 @@ function vPersonal() {
         ${priv("sueldos") ? `<label class="small" style="display:flex;gap:6px;align-items:center;white-space:nowrap"><input type="checkbox" id="perOcultar" ${ui.ocultarSueldos ? "checked" : ""} style="width:auto"> Ocultar sueldos</label>` : ""}
         <select id="perEst" aria-label="Estado">${[["activos","Activos"],["bajas","Bajas"],["todos","Todos"]].map(([k,l]) => `<option value="${k}" ${ui.personalEstado === k ? "selected" : ""}>${l}</option>`).join("")}</select>
         <button class="b primary" data-act="newPer" ${roOnly()}>Agregar</button></div></div>
-    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Nombre</th><th>Sector</th><th>Alta</th>${priv("sueldos") ? `<th class="n">Sueldo líquido</th>` : ""}<th class="n">Adelantos</th><th>Estado</th></tr></thead><tbody>${list.map(p => { const est = estadoPersona(p); const ad = adelPendDesc(p.nombre); return `<tr class="click" data-act="editPer" data-id="${p.id}"><td>${esc(p.nombre)}<div class="muted small">${esc(p.cargo || "")}</div></td><td>${esc(p.sector || "")}</td><td>${fmtD(p.alta)}</td>${priv("sueldos") ? `<td class="n">${ui.ocultarSueldos ? "•••••" : p.sueldoLiquido ? pesos(p.sueldoLiquido) : p.laudo ? "Laudo" : "—"}</td>` : ""}<td class="n">${ad ? pesos(ad) : "—"}</td><td><span class="pill ${est === "Activo" ? "good" : est === "Baja" ? "bad" : "acc"}">${est}${est === "Baja" ? " " + fmtD(p.baja).slice(0,5) : ""}</span>${p.baja && est !== "Baja" ? ` <span class="pill bad">Baja el ${fmtD(p.baja).slice(0,5)}</span>` : ""}</td></tr>`; }).join("")}</tbody></table></div>` : `<div class="empty">No hay personas que coincidan.</div>`}
+    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Nombre</th><th>Sector</th><th>Alta</th>${priv("sueldos") ? `<th class="n">Sueldo líquido</th>` : ""}<th class="n">Adelantos</th><th>Estado</th></tr></thead><tbody>${list.map(p => { const est = estadoPersona(p); const ad = adelPendDesc(p.nombre); return `<tr class="click" data-act="editPer" data-id="${p.id}"><td>${esc(p.nombre)}<div class="muted small">${esc(p.cargo || "")}</div></td><td>${esc(p.sector || "")}</td><td>${fmtD(p.alta)}</td>${priv("sueldos") ? `<td class="n">${ui.ocultarSueldos ? "•••••" : p.sueldoLiquido ? pesos(p.sueldoLiquido) : p.laudo ? "Laudo" : "—"}</td>` : ""}<td class="n">${ad ? pesos(ad) : "—"}</td><td><span class="pill ${est === "Activo" ? "good" : est === "Baja" ? "bad" : "acc"}">${est}${est === "Baja" ? " " + fmtD(p.baja).slice(0,5) : ""}</span>${p.baja && est !== "Baja" ? ` <span class="pill bad">Baja el ${fmtD(p.baja).slice(0,5)}</span>` : ""}${est !== "Baja" ? CARNES.map(([k, l]) => { const c = carneEst(p[k]); return c.alerta ? ` <span class="pill ${c.cls}" title="${esc(l + ": " + c.txt)}">${c.cls === "bad" ? "Carné vencido" : "Carné por vencer"}</span>` : ""; }).join("") : ""}</td></tr>`; }).join("")}</tbody></table></div>` : `<div class="empty">No hay personas que coincidan.</div>`}
   </div>`;
 }
 
@@ -747,8 +784,10 @@ document.addEventListener("click", async ev => {
     case "semNext": ui.semana = addDays(ui.semana, 7); render(); break;
     case "verSem": ui.semana = id; render(); window.scrollTo(0, 0); break;
     case "newPer": ui.editing.per = "nuevo"; render(); $("#fPer input[name=nombre]")?.focus(); break;
-    case "editPer": ui.editing.per = id; render(); window.scrollTo(0, 0); break;
-    case "cancelPer": ui.editing.per = null; ui.bajaAbierta = null; render(); break;
+    case "editPer": ui.editing.per = id; ui.perEditar = false; ui.bajaAbierta = null; render(); window.scrollTo(0, 0); break;
+    case "editarPer": ui.perEditar = true; render(); $("#pe_nom")?.focus(); break;
+    case "verPer": ui.perEditar = false; render(); break;
+    case "cancelPer": ui.editing.per = null; ui.perEditar = false; ui.bajaAbierta = null; render(); break;
     case "abrirBaja": ui.bajaAbierta = ui.editing.per; render(); $("#bj_mot")?.focus(); break;
     case "cerrarBaja": ui.bajaAbierta = null; render(); break;
     case "bpsOk": marcarBps(id, el.dataset.tipo); break;
@@ -809,7 +848,8 @@ document.addEventListener("submit", async ev => {
     if (!d.fecha || !d.motivo.trim()) { toast("Poné la fecha y el motivo"); return; }
     if (await patch("personal", per.id, {baja: d.fecha, bajaMotivo: d.motivo.trim(), bajaBps: null, bajaBpsPor: null})) { toast(per.nombre + " quedó dada de baja"); ui.bajaAbierta = null; render(); }
   } else if (f.id === "fPer") {
-    const rec = {nombre: d.nombre.trim(), sector: d.sector, cargo: d.cargo.trim(), alta: d.alta || null, laudo: d.laudo === "Sí", horario: d.horario.trim(), contrato: d.contrato, notas: d.notas.trim()};
+    const apellido = (d.apellido || "").trim();
+    const rec = {nombre: [d.nombre.trim(), apellido].filter(Boolean).join(" "), apellido: apellido || null, carneSalud: d.carneSalud || null, carneManipulador: d.carneManipulador || null, sector: d.sector, cargo: d.cargo.trim(), alta: d.alta || null, laudo: d.laudo === "Sí", horario: d.horario.trim(), contrato: d.contrato, notas: d.notas.trim()};
     if ("baja" in d) { rec.baja = d.baja || null; rec.bajaMotivo = (d.bajaMotivo || "").trim(); }
     if (!rec.alta) { toast("Poné la fecha de ingreso"); return; }
     if (!rec.nombre) { toast("Poné el nombre"); return; }
@@ -817,7 +857,7 @@ document.addEventListener("submit", async ev => {
     const old = S.personal.find(x => x.id === id);
     if (old && old.nombre !== rec.nombre) for (const a of adelDe(old)) await patch("adelantos", a.id, {empleado: rec.nombre, personaId: id});
     if ("sueldoLiquido" in d) d.sueldoLiquido = numIn(d.sueldoLiquido) ?? ""; if ("sueldoNominal" in d) d.sueldoNominal = numIn(d.sueldoNominal) ?? "";
-    if (await save("personal", id, rec) && await guardarPriv(id, d, old)) { if (nuevo) await marcarNuevo("Persona", rec.nombre, "Personal"); toast("Ficha guardada"); ui.editing.per = null; render(); }
+    if (await save("personal", id, rec) && await guardarPriv(id, d, old)) { if (nuevo) await marcarNuevo("Persona", rec.nombre, "Personal"); toast("Ficha guardada"); ui.editing.per = id; ui.perEditar = false; render(); window.scrollTo(0, 0); }
   } else if (f.id === "fPago") {
     if (d.proveedor.trim() && !conocidos().has(norm(d.proveedor))) await marcarNuevo("Proveedor", d.proveedor.trim(), "Pagos");
     const formas = leerFormas();

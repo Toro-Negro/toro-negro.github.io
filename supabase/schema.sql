@@ -342,3 +342,19 @@ begin
 end $$;
 revoke all on function public.marcar_bps(text, text, boolean) from public;
 grant execute on function public.marcar_bps(text, text, boolean) to authenticated;
+
+-- Ficha de persona (25/11/2026): apellido aparte, carnés, contacto de emergencia y banco aparte
+alter table public.personal
+  add column if not exists apellido text,
+  add column if not exists "carneSalud" date,
+  add column if not exists "carneManipulador" date;
+
+alter table public."personalPrivado" drop constraint if exists "personalPrivado_campo_check";
+alter table public."personalPrivado" add constraint "personalPrivado_campo_check"
+  check (campo in ('sueldoLiquido','sueldoNominal','documento','telefono','cuenta','banco','nacimiento','email','domicilio','emergenciaNombre','emergenciaTel'));
+create or replace function public.grupo_privado(campo text) returns text language sql immutable as $$
+  select case when campo in ('sueldoLiquido','sueldoNominal') then 'sueldos'
+              when campo in ('documento','telefono','nacimiento') then 'documentos'
+              when campo in ('email','domicilio','emergenciaNombre','emergenciaTel') then 'contacto'
+              else 'cuentas' end
+$$;
