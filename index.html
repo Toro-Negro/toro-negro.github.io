@@ -577,7 +577,7 @@ function vAdelantos() {
       if (grp.length < 2) { out.push(row(a, btn(a))); continue; }
       if (hechos.has(k)) continue; hechos.add(k);
       const gk = "adel|" + sec + "|" + k, abierto = ui.gruposAbiertos.has(gk);
-      out.push(`<tr class="click grupoPago" data-act="toggleGrupo" data-id="${esc(gk)}" style="background:var(--soft, rgba(127,127,127,.08))"><td>${fmtD(grp.map(x => x.fecha).sort().pop())}</td><td><strong>${esc(nombreAdel(a))}</strong> <span class="muted small">· ${grp.length} adelantos</span><div class="muted small">${esc(grp.map(x => fmtD(x.fecha).slice(0, 5) + " " + pesos(x.monto)).join(" · "))}</div></td><td class="n"><strong>${pesos(grp.reduce((t, x) => t + (x.monto || 0), 0))}</strong></td><td class="n"><button class="b small" type="button" data-act="toggleGrupo" data-id="${esc(gk)}">${abierto ? "Ocultar detalle" : "Ver detalle"}</button></td></tr>`);
+      out.push(`<tr class="click grupoPago" data-act="toggleGrupo" data-id="${esc(gk)}"><td>${fmtD(grp.map(x => x.fecha).sort().pop())}</td><td>${esc(nombreAdel(a))} <span class="muted small">· ${grp.length} adelantos ${abierto ? "▾" : "▸"}</span><div class="muted small">${esc(grp.map(x => fmtD(x.fecha).slice(0, 5) + " " + pesos(x.monto)).join(" · "))}</div></td><td class="n">${pesos(grp.reduce((t, x) => t + (x.monto || 0), 0))}</td><td class="n">${btn({...a, id: grp.map(x => x.id).join(",")})}</td></tr>`);
       if (abierto) grp.forEach(x => out.push(row(x, btn(x), true)));
     }
     return `<div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Empleado</th><th class="n">Monto</th><th></th></tr></thead><tbody>${out.join("")}</tbody></table></div>`;
@@ -904,9 +904,9 @@ document.addEventListener("click", async ev => {
     case "editAdel": ui.editing.adel = id; render(); window.scrollTo(0, 0); break;
     case "cancelAdel": ui.editing.adel = null; render(); break;
     case "delAdel": conf(async () => { await remove("adelantos", id); ui.editing.adel = null; }); break;
-    case "entregar": if (await patch("adelantos", id, {estado: "Entregado", fecha: today()})) toast("Marcado como entregado hoy"); break;
-    case "descontar": if (await patch("adelantos", id, {descontado: true, descontadoFecha: today()})) toast("Marcado como descontado"); break;
-    case "nodescontar": await patch("adelantos", id, {descontado: false, descontadoFecha: null}); break;
+    case "entregar": { let ok = true; for (const x of id.split(",")) ok = (await patch("adelantos", x, {estado: "Entregado", fecha: today()})) && ok; if (ok) toast(id.includes(",") ? "Marcados como entregados hoy" : "Marcado como entregado hoy"); break; }
+    case "descontar": { let ok = true; for (const x of id.split(",")) ok = (await patch("adelantos", x, {descontado: true, descontadoFecha: today()})) && ok; if (ok) toast(id.includes(",") ? "Marcados como descontados" : "Marcado como descontado"); break; }
+    case "nodescontar": for (const x of id.split(",")) await patch("adelantos", x, {descontado: false, descontadoFecha: null}); break;
     case "descontarTodos": {
       if (!el.dataset.confirm) { el.dataset.confirm = "1"; const txt = el.textContent; el.textContent = "¿Seguro? Tocá de nuevo para descontar " + el.dataset.n; setTimeout(() => { if (el.isConnected) { delete el.dataset.confirm; el.textContent = txt; } }, 4000); break; }
       el.disabled = true;
