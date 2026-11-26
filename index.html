@@ -671,7 +671,7 @@ function vPersonal() {
     <form class="f" id="fPer">
       <label class="fl">Nombre<input id="pe_nom" name="nombre" required value="${esc(nombrePila(p))}"></label>
       <label class="fl">Apellido<input id="pe_ape" name="apellido" value="${esc(p.apellido || "")}"></label>
-      <label class="fl">Sector<select id="pe_sec" name="sector">${opts([...new Set(["Cocina","Sala","Barra","Limpieza","Caja","Administración","Otros", ...(p.sector ? [p.sector] : [])])], p.sector || "Cocina")}</select></label>
+      <label class="fl">Sector<select id="pe_sec" name="sector">${opts([...new Set(["Cocina","Postres","Sala","Barra","Limpieza","Caja","Administración","Otros", ...(p.sector ? [p.sector] : [])])], p.sector || "Cocina")}</select></label>
       <label class="fl">Cargo<input id="pe_car" name="cargo" value="${esc(p.cargo || "")}"></label>
       <label class="fl">Fecha de ingreso<input id="pe_alta" name="alta" type="date" required value="${esc(p.alta || (p.id ? "" : today()))}"></label>
       ${p.baja ? `<label class="fl">Fecha de baja<input id="pe_baja" name="baja" type="date" value="${esc(p.baja)}"></label>
