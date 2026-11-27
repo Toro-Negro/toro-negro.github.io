@@ -378,3 +378,4 @@ create policy p_ins on public.temas for insert to authenticated with check (publ
 create policy p_upd on public.temas for update to authenticated using (public.nivel('temas') >= 3) with check (public.nivel('temas') >= 3);
 create policy p_del on public.temas for delete to authenticated using (public.nivel('temas') >= 3);
 do $$ begin execute 'alter publication supabase_realtime add table public.temas'; exception when duplicate_object then null; end $$;
+alter table "cajaFuerte" add column if not exists estado text;
