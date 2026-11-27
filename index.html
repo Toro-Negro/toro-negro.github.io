@@ -147,7 +147,7 @@ const S = {cfg: {cotizacion: 41, diasAcreditacion: 15}, ready: {}, canWrite: tru
 COLS.forEach(c => S[c] = []);
 let db = null, dl = true;
 let tab = "resumen";
-const ui = {editing: {}, propDraft: {}, formasDraft: null, formasFor: null, gruposAbiertos: new Set(), abiertos: new Set(), adelPara: null, perEditar: false, bajaAbierta: null, bpsVer: false, bpsRecien: [], personalQ: "", personalEstado: "activos", personalSector: "", ocultarSueldos: true, pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
+const ui = {editing: {}, propDraft: {}, formasDraft: null, formasFor: null, gruposAbiertos: new Set(), resHechas: new Set(), abiertos: new Set(), adelPara: null, perEditar: false, bajaAbierta: null, bpsVer: false, bpsRecien: [], personalQ: "", personalEstado: "activos", personalSector: "", ocultarSueldos: true, pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
 
 const TABS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retiros de caja"],["adelantos","Adelantos"],["propinas","Propinas"],["personal","Personal"],["pagos","Pagos y vencimientos"],["temas","Temas internos"],["ajustes","Ajustes"],["usuarios","Usuarios"]];
 
@@ -267,7 +267,35 @@ const sumaFormas = fs => fs.reduce((t, f) => t + (Number(f.monto) || 0), 0);
 const restante = p => { const fs = formasDe(p); return fs.length ? Math.max(0, (p.monto ?? sumaFormas(fs)) - sumaFormas(fs.filter(f => f.hecha))) : (p.monto || 0); };
 const proxForma = p => sortBy(formasDe(p).filter(f => !f.hecha), "fecha")[0];
 const montoVenc = p => { const f = proxForma(p); return f ? money(f.monto, p.moneda) + `<div class="muted small">${esc(f.tipo)}</div>` : p.monto == null ? "a definir" : money(p.monto, p.moneda); };
-const formasTxt = p => formasDe(p).map(f => `${f.hecha ? "✓" : "○"} ${f.tipo}${f.tipo === "Efectivo" && f.desde ? " (" + f.desde + ")" : ""} ${money(f.monto, p.moneda)}${f.fecha ? " · " + fmtD(f.fecha) : ""}`).join(" · ");
+const FUENTES = ["Fondo de dueños", "Retiros de caja"];
+const esReserva = f => f.tipo === "Efectivo" && FUENTES.includes(f.desde) && Number(f.monto) > 0;
+function reservas(fuente) {
+  const out = [];
+  S.pagos.forEach(p => formasDe(p).forEach((f, i) => { if (esReserva(f) && (!fuente || f.desde === fuente)) out.push({pagoId: p.id, i, fuente: f.desde, monto: Number(f.monto) || 0, moneda: p.moneda === "US$" ? "US$" : "$", para: (f.para || "").trim() || [p.proveedor, p.concepto].filter(Boolean).join(" · "), fecha: f.fecha || p.vencimiento || null, hecha: !!f.hecha, pago: p}); }));
+  return out;
+}
+function reservado(fuente, excluirPago) {
+  let pesos = 0, usd = 0;
+  reservas(fuente).forEach(r => { if (r.hecha || r.pagoId === excluirPago) return; if (r.moneda === "US$") usd += r.monto; else pesos += r.monto; });
+  return {pesos, usd};
+}
+function saldoFuente(fuente) { if (fuente === "Fondo de dueños") { const c = cajaTotales(); return {pesos: c.saldo, usd: c.usd}; } const f = fuerteTotales(); return {pesos: f.pesos, usd: f.usd}; }
+function notaRes(fuente) { const s = saldoFuente(fuente), r = reservado(fuente); return `<div class="note" style="margin-top:4px">Reservado ${pesos(r.pesos)}${r.usd ? " y " + usd(r.usd) : ""} · <strong>disponible ${pesos(s.pesos - r.pesos)}</strong>${s.usd || r.usd ? " y " + usd(s.usd - r.usd) : ""}</div>`; }
+function tilesReserva(fuente) {
+  const s = saldoFuente(fuente), r = reservado(fuente), n = reservas(fuente).filter(x => !x.hecha).length;
+  return `<div class="card tile"><div class="label">Reservado</div><div class="num">${pesos(r.pesos)}</div>${r.usd ? `<div class="num" style="font-size:1.1em">+ ${usd(r.usd)}</div>` : ""}<div class="note">${n ? n + (n === 1 ? " reserva pendiente" : " reservas pendientes") : "Nada reservado"}</div></div>
+    <div class="card tile"><div class="label">Disponible</div><div class="num ${s.pesos - r.pesos < 0 ? "neg" : ""}">${pesos(s.pesos - r.pesos)}</div>${s.usd || r.usd ? `<div class="num" style="font-size:1.1em">+ ${usd(s.usd - r.usd)}</div>` : ""}<div class="note">Saldo menos lo reservado</div></div>`;
+}
+function cardReservas(fuente) {
+  const all = reservas(fuente), pend = sortBy(all.filter(r => !r.hecha), "fecha"), hechas = sortBy(all.filter(r => r.hecha), "fecha", -1), ver = ui.resHechas.has(fuente);
+  const rows = [...pend, ...(ver ? hechas : [])];
+  const fila = r => `<tr class="click" data-act="verPagoRes" data-id="${r.pagoId}"><td>${r.fecha ? fmtD(r.fecha) : "—"}</td><td>${esc(r.para)}${r.para !== (r.pago.proveedor || "") ? `<div class="muted small">${esc(r.pago.proveedor || "")}</div>` : ""}</td><td class="n">${money(r.monto, r.moneda)}</td><td class="n">${r.hecha ? '<span class="pill good">Hecha</span>' : '<span class="pill warn">Pendiente</span>'}</td></tr>`;
+  return `<div class="card"><div class="toolbar"><h3 style="margin:0">Plata reservada</h3>${hechas.length ? `<button class="b small" type="button" data-act="resHechas" data-id="${esc(fuente)}">${ver ? "Ocultar las hechas" : "Ver también las hechas (" + hechas.length + ")"}</button>` : ""}</div>
+    <p class="muted small" style="margin:6px 0 0">Plata apartada para pagos cargados en Pagos y vencimientos. Se descuenta del saldo cuando la parte se marca como hecha, y ahí la reserva se libera.</p>
+    ${rows.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Fecha</th><th>Para qué</th><th class="n">Monto</th><th class="n"></th></tr></thead><tbody>${rows.map(fila).join("")}</tbody></table></div>` : `<div class="empty">No hay plata reservada ${fuente === "Fondo de dueños" ? "del fondo" : "de los retiros"}.</div>`}
+  </div>`;
+}
+const formasTxt = p => formasDe(p).map(f => `${f.hecha ? "✓" : "○"} ${f.tipo}${f.tipo === "Efectivo" && f.desde ? " (" + f.desde + (!f.hecha && FUENTES.includes(f.desde) ? ", reservado" : "") + ")" : ""} ${money(f.monto, p.moneda)}${f.fecha ? " · " + fmtD(f.fecha) : ""}`).join(" · ");
 function salidasDe(rec, id) {
   const fs = formasDe(rec);
   if (fs.length) return fs.filter(f => f.hecha && f.tipo === "Efectivo" && (f.desde === "Fondo de dueños" || f.desde === "Retiros de caja") && f.monto)
@@ -280,12 +308,13 @@ function fpRowsHtml(fs, moneda) {
     <label class="small" style="display:flex;flex-direction:column;gap:2px">Monto ${moneda === "US$" ? "US$" : "$"}<input data-fp="monto" inputmode="decimal" aria-label="Monto ${i + 1}" value="${x.monto ?? ""}" style="width:120px"></label>
     <label class="small" style="display:flex;flex-direction:column;gap:2px">Fecha de pago<input data-fp="fecha" type="date" aria-label="Fecha de pago ${i + 1}" value="${esc(x.fecha || "")}" style="width:auto"></label>
     <label class="small fpDesdeL" style="display:flex;flex-direction:column;gap:2px" ${x.tipo === "Efectivo" ? "" : "hidden"}>Sale de<select data-fp="desde" aria-label="De dónde sale el efectivo ${i + 1}" style="width:auto">${opts(FP_DESDE, x.desde || "Fondo de dueños")}</select></label>
+    <label class="small fpDesdeL" style="display:flex;flex-direction:column;gap:2px" ${x.tipo === "Efectivo" ? "" : "hidden"}>Para qué<input data-fp="para" aria-label="Para qué es la plata ${i + 1}" value="${esc(x.para || "")}" placeholder="Opcional" style="width:160px"></label>
     <label class="small" style="display:flex;gap:4px;align-items:center"><input type="checkbox" data-fp="hecha" ${x.hecha ? "checked" : ""} style="width:auto"> Hecha</label>
     <button class="b small" type="button" data-act="fpDel" data-i="${i}">Quitar</button></div>`).join("");
 }
 function leerFormas() {
   return [...document.querySelectorAll(".fpRow")].map(r => { const g = k => r.querySelector(`[data-fp="${k}"]`);
-    const tipo = g("tipo").value; return {tipo, monto: numIn(g("monto").value), fecha: g("fecha").value || null, hecha: g("hecha").checked, ...(tipo === "Efectivo" ? {desde: g("desde").value} : {})}; });
+    const tipo = g("tipo").value; return {tipo, monto: numIn(g("monto").value), fecha: g("fecha").value || null, hecha: g("hecha").checked, ...(tipo === "Efectivo" ? {desde: g("desde").value, ...(g("para").value.trim() ? {para: g("para").value.trim()} : {})} : {})}; });
 }
 function fpSumaTxt(fs, total, moneda) {
   const s = sumaFormas(fs), hechas = sumaFormas(fs.filter(f => f.hecha));
@@ -300,6 +329,11 @@ function fpRefresh() {
   const el = $("#fpSuma"); if (el) el.innerHTML = fpSumaTxt(ui.formasDraft, numIn($("#pg_monto")?.value), $("#pg_mon")?.value);
   const simple = !ui.formasDraft.length; document.querySelectorAll(".pgSimple").forEach(x => x.hidden = !simple);
   if (!simple) document.querySelectorAll(".pgPag").forEach(x => x.hidden = true);
+  resRefresh();
+}
+function resRefresh() {
+  const simple = !document.querySelector(".fpRow"), est = $("#pg_est")?.value, r = $("#pg_res");
+  document.querySelectorAll(".pgRes").forEach(x => x.hidden = !simple || est === "Pagado" || (x.id === "pg_resParaL" && (!r || r.value === "No reservar")));
 }
 function mesSiguiente(f) {
   const [y, m, d] = f.split("-").map(Number);
@@ -442,8 +476,8 @@ function vResumen() {
   const ps = semanaPropina(monday(today()));
   return `
   <div class="grid">
-    ${niv("caja") ? `<div class="card tile"><div class="label">Fondo de dueños</div><div class="num">${pesos(c.saldo)}</div>${c.usd ? `<div class="num" style="font-size:1.1em">+ ${usd(c.usd)}</div>` : ""}<div class="note">Quedan de ${pesos(c.ing)} recibidos · gastado ${pesos(c.egr)}${c.ajuste ? " · ajuste por arqueo " + pesos(c.ajuste) : ""}${c.ajusteMov ? " · ajustes " + pesos(c.ajusteMov) : ""}${movPend().length ? " · " + pesos(movPend().reduce((t, m) => t + enPesos(m.monto, m.moneda, m.cotizacion), 0)) + " por pagar" : ""}</div></div>` : ""}
-    ${niv("fuerte") ? `<div class="card tile"><div class="label">Retiros de caja</div><div class="num">${pesos(f.pesos)}</div><div class="note">y ${usd(f.usd)} · total ${pesos(f.equiv)} a $${nf0.format(S.cfg.cotizacion)}</div></div>` : ""}
+    ${niv("caja") ? `<div class="card tile"><div class="label">Fondo de dueños</div><div class="num">${pesos(c.saldo)}</div>${c.usd ? `<div class="num" style="font-size:1.1em">+ ${usd(c.usd)}</div>` : ""}<div class="note">Quedan de ${pesos(c.ing)} recibidos · gastado ${pesos(c.egr)}${c.ajuste ? " · ajuste por arqueo " + pesos(c.ajuste) : ""}${c.ajusteMov ? " · ajustes " + pesos(c.ajusteMov) : ""}${movPend().length ? " · " + pesos(movPend().reduce((t, m) => t + enPesos(m.monto, m.moneda, m.cotizacion), 0)) + " por pagar" : ""}</div>${notaRes("Fondo de dueños")}</div>` : ""}
+    ${niv("fuerte") ? `<div class="card tile"><div class="label">Retiros de caja</div><div class="num">${pesos(f.pesos)}</div><div class="note">y ${usd(f.usd)} · total ${pesos(f.equiv)} a $${nf0.format(S.cfg.cotizacion)}</div>${notaRes("Retiros de caja")}</div>` : ""}
     ${niv("adelantos") ? `<div class="card tile"><div class="label">Adelantos a descontar</div><div class="num">${pesos(adel)}</div><div class="note">${pendEnt.length ? pendEnt.length + " sin entregar (" + pesos(pendEnt.reduce((s,a)=>s+(a.monto||0),0)) + ")" : "Todos entregados"}</div></div>` : ""}
     ${niv("pagos") ? `<div class="card tile"><div class="label">Deuda pendiente</div><div class="num">${pesos(deudaP)}</div><div class="note">y ${usd(deudaU)} · ${pend.length} pagos</div></div>` : ""}
   </div>
@@ -478,6 +512,7 @@ function vCaja() {
   return `
   <div class="grid">
     <div class="card tile"><div class="label">Quedan del fondo</div><div class="num">${pesos(c.saldo)}</div>${c.usd ? `<div class="num" style="font-size:1.1em">+ ${usd(c.usd)}</div>` : ""}<div class="note">Plata que te dieron los dueños, guardada en la caja fuerte${c.ajuste ? " · incluye ajuste por arqueo de " + pesos(c.ajuste) : ""}${c.ajusteMov ? " · incluye ajustes de " + pesos(c.ajusteMov) + " (ver movimientos)" : ""}</div></div>
+    ${tilesReserva("Fondo de dueños")}
     <div class="card tile"><div class="label">Recibido</div><div class="num pos">${pesos(c.ing)}</div>${c.ajusteMov ? `<div class="note">Aportes de los dueños. El ajuste de ${pesos(c.ajusteMov)} va aparte, en movimientos.</div>` : ""}</div>
     <div class="card tile"><div class="label">Egresos</div><div class="num neg">${pesos(c.egr)}</div><div class="note">Incluye ${pesos(c.adel)} de adelantos</div></div>
     <div class="card tile"><div class="label">Gastos pendientes de pago</div><div class="num">${pesos(movPend().reduce((t, m) => t + enPesos(m.monto, m.moneda, m.cotizacion), 0))}</div><div class="note">${movPend().length ? movPend().length + " sin pagar, no se descuentan todavía" : "Ninguno"}</div></div>
@@ -507,6 +542,7 @@ function vCaja() {
     ${rows.map(m => `<tr class="click" data-act="${m._k === "mov" ? "editMov" : "goAdel"}" data-id="${m.id}"><td>${fmtD(m.fecha)}${m.turno ? `<div class="muted small">${esc(m.turno)}</div>` : ""}</td><td>${esc(m.persona || "")}<div class="muted small">${esc([m.concepto, m.notas].filter(Boolean).join(" · "))}</div></td><td><span class="pill ${m.tipo === "Ingreso" ? "good" : "mute"}">${esc(m.categoria)}</span>${m.estado === "Pendiente de pago" ? ` <span class="pill warn">Pendiente de pago</span>` : ""}</td><td class="n ${m.tipo === "Ingreso" ? "pos" : ""}">${m.tipo === "Ingreso" ? "+" : "−"} ${money(m.monto, m.moneda)}${m.estado === "Pendiente de pago" ? `<div style="margin-top:4px"><button class="b small" data-act="pagarMov" data-id="${m.id}" ${roOnly(3)}>Marcar pagado</button></div>` : ""}</td></tr>`).join("")}
     </tbody></table></div>` : `<div class="empty">No hay movimientos en este período. Cargá el primero con el formulario de arriba.</div>`}
   </div>
+  ${cardReservas("Fondo de dueños")}
   ${arqueoCard("Fondo de dueños", c.saldo, Math.round(c.usd * 100) / 100)}`;
 }
 
@@ -546,6 +582,7 @@ function vFuerte() {
     <div class="card tile"><div class="label">Pesos retirados</div><div class="num">${pesos(f.pesos)}</div><div class="note">Aparte del fondo de dueños</div></div>
     <div class="card tile"><div class="label">Dólares</div><div class="num">${usd(f.usd)}</div><div class="note">a $${nf0.format(S.cfg.cotizacion)} = ${pesos(f.usd * S.cfg.cotizacion)}</div></div>
     <div class="card tile"><div class="label">Total en pesos</div><div class="num">${pesos(f.equiv)}</div><div class="note">Cotización fija, se cambia en Ajustes</div></div>
+    ${tilesReserva("Retiros de caja")}
   </div>
   ${plegCard("cf", e.id ? "Editar retiro" : "Nuevo retiro de la caja del restorán", !!e.id)}
     <form class="f" id="fCF">
@@ -558,6 +595,7 @@ function vFuerte() {
     </form>
     ${rows.length ? `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Fecha</th><th>Motivo</th><th class="n">Pesos</th><th class="n">Dólares</th></tr></thead><tbody>${rows.map(x => `<tr class="click" data-act="${x._adel ? "goAdel" : "editCF"}" data-id="${x.id}"><td>${fmtD(x.fecha)}</td><td>${esc(x.motivo)} <span class="pill ${x.tipo === "Salida" ? "bad" : "good"}">${esc(x.tipo)}</span></td><td class="n">${x.pesos ? pesos(x.pesos) : "—"}</td><td class="n">${x.dolares ? usd(x.dolares) : "—"}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay retiros todavía.</div>`}
   </div>
+  ${cardReservas("Retiros de caja")}
   ${arqueoCard("Retiros de caja", f.pesos, f.usd)}`;
 }
 
@@ -847,11 +885,13 @@ function vPagos() {
       <label class="fl">Vencimiento<input id="pg_venc" name="vencimiento" type="date" value="${esc(e.vencimiento || "")}"></label>
       <label class="fl">Se repite<select id="pg_rep" name="repetir"><option value="" ${e.repetir ? "" : "selected"}>No, es un pago único</option><option value="mensual" ${e.repetir === "mensual" ? "selected" : ""}>Todos los meses</option></select></label>
       <label class="fl pgSimple" ${fd.length ? "hidden" : ""}>Estado<select id="pg_est" name="estado">${opts(["Pendiente","Pagado"], e.estado || "Pendiente")}</select></label>
+      <label class="fl pgSimple pgRes" ${fd.length || e.estado === "Pagado" ? "hidden" : ""}>Reservar plata de<select id="pg_res" name="reservaDesde">${opts(["No reservar", ...FUENTES], "No reservar")}</select></label>
+      <label class="fl pgSimple pgRes" id="pg_resParaL" hidden>Para qué<input id="pg_resPara" name="reservaPara" placeholder="Opcional"></label>
       <label class="fl pgPag" ${e.estado === "Pagado" && !fd.length ? "" : "hidden"}>Fecha de pago<input id="pg_fpag" name="fechaPago" type="date" value="${esc(e.fechaPago || today())}"></label>
       <label class="fl pgPag" ${e.estado === "Pagado" && !fd.length ? "" : "hidden"}>¿De dónde salió la plata?<select id="pg_desde" name="pagadoDesde">${desdes().map(x => `<option value="${esc(x)}" ${(e.pagadoDesde || "Fondo de dueños") === x ? "selected" : ""}>${esc(desdeLbl(x))}</option>`).join("")}<option value="__nuevo">+ Agregar otra forma de pago…</option></select></label>
       <label class="fl pgPag" id="pg_desdeNL" hidden>Nombre de la nueva forma de pago<input id="pg_desdeN" name="desdeNuevo" placeholder="Ej.: Pagó Fernando"></label>
       <div class="wide"><h3 style="margin:8px 0 4px">Formas de pago</h3>
-        <p class="muted small" style="margin:0 0 8px">Para pagar en partes, por ejemplo una entrega y dos cheques. Poné en Monto el total de la deuda y acá cada parte con su fecha de pago (cuándo se transfiere o se entrega el cheque), y tildá Hecha cuando se pague. El vencimiento pasa a ser el de la próxima parte pendiente, y el pago queda pagado recién cuando están todas hechas y suman el total. Mientras tanto sigue en Pendientes por el saldo. El efectivo del fondo o de los retiros se descuenta solo.</p>
+        <p class="muted small" style="margin:0 0 8px">Para pagar en partes, por ejemplo una entrega y dos cheques. Poné en Monto el total de la deuda y acá cada parte con su fecha de pago (cuándo se transfiere o se entrega el cheque), y tildá Hecha cuando se pague. El vencimiento pasa a ser el de la próxima parte pendiente, y el pago queda pagado recién cuando están todas hechas y suman el total. Mientras tanto sigue en Pendientes por el saldo. El efectivo del fondo o de los retiros queda reservado hasta que lo tildás como hecho, y ahí se descuenta solo.</p>
         <div id="fpRows">${fpRowsHtml(fd, e.moneda || "$")}</div>
         <div id="fpSuma" class="small" style="margin:4px 0 8px">${fpSumaTxt(fd, e.monto ?? null, e.moneda || "$")}</div>
         <div class="btns"><button class="b small" type="button" data-act="fpAdd">+ Agregar forma de pago</button></div></div>
@@ -862,7 +902,7 @@ function vPagos() {
   ${vPagosFecha()}
   <div class="card">
     <div class="toolbar"><h3 style="margin:0">Pagos</h3><select id="pgEst" aria-label="Estado">${[["pendiente","Pendientes"],["pagado","Pagados"],["todos","Todos"]].map(([k,l]) => `<option value="${k}" ${ui.pagosEstado === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
-    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Vence</th><th>Proveedor</th><th class="n">Monto</th><th></th></tr></thead><tbody>${filasPagos(list, p => `<tr class="click" data-act="editPago" data-id="${p.id}"><td>${p.estado === "Pagado" ? `<span class="pill good">Pagado</span>` : vencPill(p.vencimiento)}</td><td>${esc(p.proveedor)} <span class="muted small">· ${esc(p.tipo || "")}${p.repetir === "mensual" ? " · todos los meses" : ""}</span><div class="muted small">${esc([p.concepto, p.notas].filter(Boolean).join(" · "))}</div>${formasDe(p).length ? `<div class="small">${esc(formasTxt(p))}</div>` : ""}</td><td class="n">${p.monto == null ? '<span class="pill warn">a definir</span>' : money(p.monto, p.moneda)}${formasDe(p).length && p.estado !== "Pagado" ? `<div class="muted small">falta ${money(restante(p), p.moneda)}</div>` : ""}</td><td class="n">${p.estado !== "Pagado" && formasDe(p).length ? `<button class="b small" type="button" data-act="editPago" data-id="${p.id}">Ver formas</button>` : p.estado !== "Pagado" ? (ui.pagando === p.id ? `<div class="small muted" style="margin-bottom:4px">¿De dónde sale la plata?</div><div class="btns" style="justify-content:flex-end"><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Fondo de dueños">Fondo de dueños</button><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Retiros de caja">Retiros de caja</button>${desdes().slice(2).map(x => `<button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="${esc(x)}">${esc(desdeLbl(x))}</button>`).join("")}<button class="b small" data-act="editPago" data-id="${p.id}" data-nuevo="1">+ Otra forma…</button><button class="b small" data-act="pagarCancel">Cancelar</button></div>` : `<button class="b small" data-act="pagar" data-id="${p.id}" ${roOnly(3)} ${p.monto == null ? "disabled title=\"Primero poné el monto\"" : ""}>Marcar pagado</button>`) : `<span class="muted small">${esc(p.pagadoDesde ? desdeLbl(p.pagadoDesde) : "")}${p.fechaPago ? "<br>" + fmtD(p.fechaPago) : ""}</span><div><button class="b small" type="button" data-act="editPago" data-id="${p.id}">Ver / editar</button></div>`}</td></tr>`)}</tbody></table></div>` : `<div class="empty">No hay pagos en esta lista.</div>`}
+    ${list.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Vence</th><th>Proveedor</th><th class="n">Monto</th><th></th></tr></thead><tbody>${filasPagos(list, p => `<tr class="click" data-act="editPago" data-id="${p.id}"><td>${p.estado === "Pagado" ? `<span class="pill good">Pagado</span>` : vencPill(p.vencimiento)}</td><td>${esc(p.proveedor)} <span class="muted small">· ${esc(p.tipo || "")}${p.repetir === "mensual" ? " · todos los meses" : ""}</span><div class="muted small">${esc([p.concepto, p.notas].filter(Boolean).join(" · "))}</div>${formasDe(p).length ? `<div class="small">${esc(formasTxt(p))}</div>` : ""}</td><td class="n">${p.monto == null ? '<span class="pill warn">a definir</span>' : money(p.monto, p.moneda)}${formasDe(p).length && p.estado !== "Pagado" ? `<div class="muted small">falta ${money(restante(p), p.moneda)}</div>` : ""}</td><td class="n">${p.estado !== "Pagado" && formasDe(p).length ? (formasDe(p).filter(f => !f.hecha).length === 1 ? `<div class="btns" style="justify-content:flex-end"><button class="b small" type="button" data-act="formaHecha" data-id="${p.id}" ${roOnly(3)}>Marcar pagado</button><button class="b small" type="button" data-act="editPago" data-id="${p.id}">Ver formas</button></div>` : `<button class="b small" type="button" data-act="editPago" data-id="${p.id}">Ver formas</button>`) : p.estado !== "Pagado" ? (ui.pagando === p.id ? `<div class="small muted" style="margin-bottom:4px">¿De dónde sale la plata?</div><div class="btns" style="justify-content:flex-end"><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Fondo de dueños">Fondo de dueños</button><button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="Retiros de caja">Retiros de caja</button>${desdes().slice(2).map(x => `<button class="b small" data-act="pagarDesde" data-id="${p.id}" data-desde="${esc(x)}">${esc(desdeLbl(x))}</button>`).join("")}<button class="b small" data-act="editPago" data-id="${p.id}" data-nuevo="1">+ Otra forma…</button><button class="b small" data-act="pagarCancel">Cancelar</button></div>` : `<button class="b small" data-act="pagar" data-id="${p.id}" ${roOnly(3)} ${p.monto == null ? "disabled title=\"Primero poné el monto\"" : ""}>Marcar pagado</button>`) : `<span class="muted small">${esc(p.pagadoDesde ? desdeLbl(p.pagadoDesde) : "")}${p.fechaPago ? "<br>" + fmtD(p.fechaPago) : ""}</span><div><button class="b small" type="button" data-act="editPago" data-id="${p.id}">Ver / editar</button></div>`}</td></tr>`)}</tbody></table></div>` : `<div class="empty">No hay pagos en esta lista.</div>`}
   </div>`;
 }
 
@@ -938,9 +978,26 @@ document.addEventListener("click", async ev => {
     case "delPer": conf(async () => { await remove("personal", id); ui.editing.per = null; }); break;
     case "guardarProp": guardarPropinas(); break;
     case "editPago": ui.editing.pago = id; ui.pagando = null; render(); window.scrollTo(0, 0);
-      if (el.dataset.nuevo) { $("#pg_est").value = "Pagado"; document.querySelectorAll(".pgPag").forEach(x => x.hidden = false); $("#pg_desde").value = "__nuevo"; $("#pg_desdeNL").hidden = false; $("#pg_desdeN").focus(); }
+      if (el.dataset.nuevo) { $("#pg_est").value = "Pagado"; document.querySelectorAll(".pgPag").forEach(x => x.hidden = false); $("#pg_desde").value = "__nuevo"; $("#pg_desdeNL").hidden = false; resRefresh(); $("#pg_desdeN").focus(); }
       break;
     case "cancelPago": ui.editing.pago = null; render(); break;
+    case "verPagoRes": if (!niv("pagos")) break; tab = "pagos"; ui.editing = {pago: id}; ui.pagando = null; render(); window.scrollTo(0, 0); break;
+    case "resHechas": if (ui.resHechas.has(id)) ui.resHechas.delete(id); else ui.resHechas.add(id); render(); break;
+    case "formaHecha": {
+      const pg = S.pagos.find(x => x.id === id); if (!pg) break;
+      if (niv("pagos") < 3) { toast("Solo un editor puede marcar un pago como pagado"); break; }
+      const formas = formasDe(pg).map(f => ({...f})), f0 = formas.find(f => !f.hecha); if (!f0) break;
+      f0.hecha = true; f0.fecha = today();
+      const todas = formas.every(f => f.hecha) && (pg.monto == null || sumaFormas(formas) >= pg.monto - 0.005);
+      const rec = {...pg, formas, estado: todas ? "Pagado" : "Pendiente", pagadoDesde: todas ? "Varias formas" : null, fechaPago: todas ? today() : null};
+      const px = proxForma(rec); if (px?.fecha) rec.vencimiento = px.fecha;
+      if (!(await quitarSalidas(id))) break;
+      let okS = true; for (const [p2, desde, fecha] of salidasDe(rec, id)) if (!(await registrarSalida(p2, desde, fecha))) { okS = false; break; }
+      if (!okS) break;
+      if (await patch("pagos", id, {formas, estado: rec.estado, pagadoDesde: rec.pagadoDesde, fechaPago: rec.fechaPago, vencimiento: rec.vencimiento || null})) {
+        toast(esReserva(f0) ? "Pagado y descontado de " + f0.desde + ". La reserva se liberó" : todas ? "Marcado como pagado" : "Parte marcada como hecha, queda saldo por pagar"); render();
+        if (todas) await crearSiguiente({...rec, id}); }
+      break; }
     case "toggleGrupo": if (ui.gruposAbiertos.has(id)) ui.gruposAbiertos.delete(id); else ui.gruposAbiertos.add(id); render(); break;
     case "fpAdd": { const fs = leerFormas(); const tot = numIn($("#pg_monto").value); const falta = tot == null ? null : Math.round((tot - sumaFormas(fs)) * 100) / 100;
       fs.push({tipo: "Cheque", monto: falta > 0 ? falta : null, fecha: null, hecha: false}); $("#fpRows").innerHTML = fpRowsHtml(fs, $("#pg_mon").value); fpRefresh(); break; }
@@ -1014,6 +1071,7 @@ document.addEventListener("submit", async ev => {
   } else if (f.id === "fPago") {
     if (d.proveedor.trim() && !conocidos().has(norm(d.proveedor))) await marcarNuevo("Proveedor", d.proveedor.trim(), "Pagos");
     const formas = leerFormas();
+    if (!formas.length && d.estado !== "Pagado" && FUENTES.includes(d.reservaDesde)) { const m = numIn(d.monto); if (m == null || m <= 0) { toast("Poné el monto para reservar la plata"); return; } formas.push({tipo: "Efectivo", monto: m, fecha: d.vencimiento || null, hecha: false, desde: d.reservaDesde, ...((d.reservaPara || "").trim() ? {para: d.reservaPara.trim()} : {})}); }
     if (formas.some(f => f.monto == null || f.monto <= 0)) { toast("Poné el monto de cada forma de pago, o quitá la que sobra"); return; }
     if (formas.length) { const totF = numIn(d.monto); const todas = formas.every(f => f.hecha) && (totF == null || sumaFormas(formas) >= totF - 0.005); d.estado = todas ? "Pagado" : "Pendiente"; d.pagadoDesde = todas ? "Varias formas" : ""; d.fechaPago = todas ? formas.map(f => f.fecha || today()).sort().pop() : ""; }
     const pagado = d.estado === "Pagado";
@@ -1025,6 +1083,7 @@ document.addEventListener("submit", async ev => {
     const hechasJson = fs => JSON.stringify(formasDe({formas: fs}).filter(f => f.hecha));
     if ((pagado || hechasJson(formas) !== hechasJson(old?.formas)) && niv("pagos") < 3) { toast("Solo un editor puede marcar un pago o una parte como pagada"); return; }
     const id = ui.editing.pago || uid();
+    const avisos = FUENTES.map(fu => { const nuevo = formas.filter(f => esReserva(f) && !f.hecha && f.desde === fu).reduce((t, f) => t + (Number(f.monto) || 0), 0); if (!nuevo) return ""; const s0 = saldoFuente(fu), r0 = reservado(fu, id), disp = d.moneda === "US$" ? s0.usd - r0.usd : s0.pesos - r0.pesos; return nuevo > disp + 0.005 ? `en ${fu} reservás ${money(nuevo, d.moneda)} y hay ${money(disp, d.moneda)} disponible` : ""; }).filter(Boolean);
     const cambia = ["estado", "pagadoDesde", "monto", "moneda", "fechaPago", "proveedor", "concepto"].some(k => (old?.[k] ?? null) !== (rec[k] ?? null)) || JSON.stringify(formasDe(old)) !== JSON.stringify(formas);
     const nuevas = salidasDe(rec, id), habia = S.movimientos.some(m => m.pagoId === id) || S.cajaFuerte.some(m => m.pagoId === id);
     if (cambia && (habia || nuevas.length)) {
@@ -1032,7 +1091,7 @@ document.addEventListener("submit", async ev => {
       for (const [pg, desde, fecha] of nuevas) if (!(await registrarSalida(pg, desde, fecha))) return;
     }
     const dif = formas.length && rec.monto != null ? Math.round((rec.monto - sumaFormas(formas)) * 100) / 100 : 0;
-    if (await save("pagos", id, rec)) { toast(dif ? "Guardado. Ojo: las formas de pago no suman el total" : "Guardado"); ui.editing.pago = null; ui.formasFor = null; render();
+    if (await save("pagos", id, rec)) { toast(avisos.length ? "Guardado. Ojo: " + avisos.join(" · ") : dif ? "Guardado. Ojo: las formas de pago no suman el total" : "Guardado"); ui.editing.pago = null; ui.formasFor = null; render();
       if (pagado && old?.estado !== "Pagado") await crearSiguiente({...rec, id}); }
   } else if (f.id === "fCfg") {
     const cot = numIn(d.cotizacion), dias = numIn(d.diasAcreditacion);
@@ -1044,9 +1103,10 @@ document.addEventListener("input", ev => { const t = ev.target; if ((t.dataset &
 window.addEventListener("beforeunload", ev => { if (Object.keys(ui.propDraft).length) { ev.preventDefault(); ev.returnValue = ""; } });
 document.addEventListener("change", async ev => {
   const t = ev.target;
-  if (t.dataset.fp) { if (t.dataset.fp === "tipo") { const r = t.closest(".fpRow"); r.querySelector(".fpDesdeL").hidden = t.value !== "Efectivo"; } fpRefresh(); return; }
+  if (t.dataset.fp) { if (t.dataset.fp === "tipo") { const r = t.closest(".fpRow"); r.querySelectorAll(".fpDesdeL").forEach(x => x.hidden = t.value !== "Efectivo"); } fpRefresh(); return; }
   if (t.id === "pg_monto" || t.id === "pg_mon") { if ($("#fpSuma")) fpRefresh(); }
-  if (t.id === "pg_est") document.querySelectorAll(".pgPag").forEach(x => x.hidden = t.value !== "Pagado" || (x.id === "pg_desdeNL" && $("#pg_desde").value !== "__nuevo"));
+  if (t.id === "pg_est") { document.querySelectorAll(".pgPag").forEach(x => x.hidden = t.value !== "Pagado" || (x.id === "pg_desdeNL" && $("#pg_desde").value !== "__nuevo")); resRefresh(); }
+  else if (t.id === "pg_res") resRefresh();
   else if (t.id === "pg_desde") { $("#pg_desdeNL").hidden = t.value !== "__nuevo"; if (t.value === "__nuevo") $("#pg_desdeN").focus(); }
   else if (t.id === "ad_emp") { ui.adelPara = t.value || null; }
   else if (t.id === "m_cat") { $("#m_catNuevaL").hidden = t.value !== "__nuevo"; if (t.value === "__nuevo") $("#m_catNueva").focus(); }
