@@ -147,7 +147,7 @@ const S = {cfg: {cotizacion: 41, diasAcreditacion: 15}, ready: {}, canWrite: tru
 COLS.forEach(c => S[c] = []);
 let db = null, dl = true;
 let tab = "resumen";
-const ui = {editing: {}, propDraft: {}, formasDraft: null, formasFor: null, gruposAbiertos: new Set(), resHechas: new Set(), abiertos: new Set(), adelPara: null, perEditar: false, bajaAbierta: null, bpsVer: false, bpsRecien: [], personalQ: "", personalEstado: "activos", personalSector: "", ocultarSueldos: true, pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
+const ui = {editing: {}, propDraft: {}, formasDraft: null, formasFor: null, gruposAbiertos: new Set(), resHechas: new Set(), resFicha: null, abiertos: new Set(), adelPara: null, perEditar: false, bajaAbierta: null, bpsVer: false, bpsRecien: [], personalQ: "", personalEstado: "activos", personalSector: "", ocultarSueldos: true, pagosEstado: "pendiente", semana: monday(today()), movSemana: ""};
 
 const TABS = [["resumen","Resumen"],["caja","Fondo de dueños"],["fuerte","Retiros de caja"],["adelantos","Adelantos"],["propinas","Propinas"],["personal","Personal"],["pagos","Pagos y vencimientos"],["temas","Temas internos"],["ajustes","Ajustes"],["usuarios","Usuarios"]];
 
@@ -170,7 +170,7 @@ const deRetiros = a => a.origen === "Retiros de caja";
 const movPend = () => S.movimientos.filter(m => m.estado === "Pendiente de pago");
 function fuerteTotales() {
   let p = 0, u = 0;
-  S.cajaFuerte.forEach(x => { const s = x.tipo === "Salida" ? -1 : 1; p += s * (x.pesos || 0); u += s * (x.dolares || 0); });
+  S.cajaFuerte.forEach(x => { if (cfPend(x)) return; const s = x.tipo === "Salida" ? -1 : 1; p += s * (x.pesos || 0); u += s * (x.dolares || 0); });
   S.adelantos.forEach(a => { if (a.estado === "Entregado" && deRetiros(a)) p -= a.monto || 0; });
   const aj = ajusteArq("Retiros de caja"); p += aj.pesos; u += aj.usd;
   return {pesos: p, usd: u, equiv: p + u * S.cfg.cotizacion};
@@ -269,29 +269,64 @@ const proxForma = p => sortBy(formasDe(p).filter(f => !f.hecha), "fecha")[0];
 const montoVenc = p => { const f = proxForma(p); return f ? money(f.monto, p.moneda) + `<div class="muted small">${esc(f.tipo)}</div>` : p.monto == null ? "a definir" : money(p.monto, p.moneda); };
 const FUENTES = ["Fondo de dueños", "Retiros de caja"];
 const esReserva = f => f.tipo === "Efectivo" && FUENTES.includes(f.desde) && Number(f.monto) > 0;
+const RES_TIPO = {pago: "Pago", adel: "Adelanto de sueldo", mov: "Gasto del fondo", cf: "Salida de retiros"};
+const cfPend = x => x.tipo === "Salida" && x.estado === "Pendiente";
 function reservas(fuente) {
-  const out = [];
-  S.pagos.forEach(p => formasDe(p).forEach((f, i) => { if (esReserva(f) && (!fuente || f.desde === fuente)) out.push({pagoId: p.id, i, fuente: f.desde, monto: Number(f.monto) || 0, moneda: p.moneda === "US$" ? "US$" : "$", para: (f.para || "").trim() || [p.proveedor, p.concepto].filter(Boolean).join(" · "), fecha: f.fecha || p.vencimiento || null, hecha: !!f.hecha, pago: p}); }));
+  const out = [], add = r => { if (!fuente || r.fuente === fuente) out.push(r); };
+  S.pagos.forEach(p => formasDe(p).forEach((f, i) => { if (esReserva(f)) add({k: "pago:" + p.id + ":" + i, tipo: "pago", id: p.id, pagoId: p.id, i, fuente: f.desde, monto: Number(f.monto) || 0, moneda: p.moneda === "US$" ? "US$" : "$", para: (f.para || "").trim() || [p.proveedor, p.concepto].filter(Boolean).join(" · "), quien: p.proveedor || "", fecha: f.fecha || p.vencimiento || null, hecha: !!f.hecha, pago: p}); }));
+  S.adelantos.forEach(a => { if (a.estado !== "Entregado" && a.monto) add({k: "adel:" + a.id, tipo: "adel", id: a.id, fuente: a.origen || "Fondo de dueños", monto: a.monto, moneda: "$", para: "Adelanto a " + (a.empleado || "") + (a.notas ? " · " + a.notas : ""), quien: a.empleado || "", fecha: a.fecha || null, hecha: false, reg: a}); });
+  S.movimientos.forEach(m => { if (m.tipo === "Egreso" && m.estado === "Pendiente de pago" && m.monto) add({k: "mov:" + m.id, tipo: "mov", id: m.id, fuente: "Fondo de dueños", monto: m.monto, moneda: m.moneda === "US$" ? "US$" : "$", para: [m.concepto, m.categoria].filter(Boolean).join(" · ") || "Gasto", quien: m.persona || "", fecha: m.fecha || null, hecha: false, reg: m}); });
+  S.cajaFuerte.forEach(x => { if (x.tipo !== "Salida" || !(cfPend(x) || x.estado === "Hecha")) return;
+    const base = {tipo: "cf", id: x.id, fuente: "Retiros de caja", para: x.motivo || "Salida", quien: "", fecha: x.fecha || null, hecha: !cfPend(x), reg: x};
+    if (x.pesos) add({...base, k: "cf:" + x.id + ":$", monto: x.pesos, moneda: "$"});
+    if (x.dolares) add({...base, k: "cf:" + x.id + ":u", monto: x.dolares, moneda: "US$"}); });
   return out;
 }
-function reservado(fuente, excluirPago) {
+function reservado(fuente, excluir) {
   let pesos = 0, usd = 0;
-  reservas(fuente).forEach(r => { if (r.hecha || r.pagoId === excluirPago) return; if (r.moneda === "US$") usd += r.monto; else pesos += r.monto; });
+  reservas(fuente).forEach(r => { if (r.hecha || (excluir && r.id === excluir)) return; if (r.moneda === "US$") usd += r.monto; else pesos += r.monto; });
   return {pesos, usd};
 }
 function saldoFuente(fuente) { if (fuente === "Fondo de dueños") { const c = cajaTotales(); return {pesos: c.saldo, usd: c.usd}; } const f = fuerteTotales(); return {pesos: f.pesos, usd: f.usd}; }
-function notaRes(fuente) { const s = saldoFuente(fuente), r = reservado(fuente); return `<div class="note" style="margin-top:4px">Reservado ${pesos(r.pesos)}${r.usd ? " y " + usd(r.usd) : ""} · <strong>disponible ${pesos(s.pesos - r.pesos)}</strong>${s.usd || r.usd ? " y " + usd(s.usd - r.usd) : ""}</div>`; }
+function avisoReserva(fuente, monto, moneda, excluir) {
+  if (!FUENTES.includes(fuente) || !monto) return "";
+  const s = saldoFuente(fuente), r = reservado(fuente, excluir), disp = moneda === "US$" ? s.usd - r.usd : s.pesos - r.pesos;
+  return monto > disp + 0.005 ? `en ${fuente} reservás ${money(monto, moneda)} y hay ${money(disp, moneda)} disponible` : "";
+}
+const tabFuente = fuente => fuente === "Fondo de dueños" ? "caja" : "fuerte";
+function notaRes(fuente) { const s = saldoFuente(fuente), r = reservado(fuente); return `<div class="note click" data-act="verReservas" data-id="${esc(fuente)}" style="margin-top:4px;cursor:pointer">Reservado ${pesos(r.pesos)}${r.usd ? " y " + usd(r.usd) : ""} · <strong>disponible ${pesos(s.pesos - r.pesos)}</strong>${s.usd || r.usd ? " y " + usd(s.usd - r.usd) : ""} · <u>ver reservas</u></div>`; }
 function tilesReserva(fuente) {
   const s = saldoFuente(fuente), r = reservado(fuente), n = reservas(fuente).filter(x => !x.hecha).length;
-  return `<div class="card tile"><div class="label">Reservado</div><div class="num">${pesos(r.pesos)}</div>${r.usd ? `<div class="num" style="font-size:1.1em">+ ${usd(r.usd)}</div>` : ""}<div class="note">${n ? n + (n === 1 ? " reserva pendiente" : " reservas pendientes") : "Nada reservado"}</div></div>
+  return `<div class="card tile click" data-act="verReservas" data-id="${esc(fuente)}" style="cursor:pointer" title="Ver el detalle de lo reservado"><div class="label">Reservado</div><div class="num">${pesos(r.pesos)}</div>${r.usd ? `<div class="num" style="font-size:1.1em">+ ${usd(r.usd)}</div>` : ""}<div class="note">${n ? n + (n === 1 ? " reserva pendiente" : " reservas pendientes") : "Nada reservado"} · <u>ver detalle</u></div></div>
     <div class="card tile"><div class="label">Disponible</div><div class="num ${s.pesos - r.pesos < 0 ? "neg" : ""}">${pesos(s.pesos - r.pesos)}</div>${s.usd || r.usd ? `<div class="num" style="font-size:1.1em">+ ${usd(s.usd - r.usd)}</div>` : ""}<div class="note">Saldo menos lo reservado</div></div>`;
+}
+const nivRes = t => niv({pago: "pagos", adel: "adelantos", mov: "caja", cf: "fuerte"}[t]);
+function fichaReserva(r) {
+  const fila = (k, v) => v ? `<dt>${k}</dt><dd>${v}</dd>` : "";
+  const bloque = (t, filas) => `<section class="bloque"><h3>${t}</h3><dl>${filas.join("")}</dl></section>`;
+  const g = r.reg || r.pago;
+  const gasto = r.tipo === "pago" ? [fila("Proveedor", esc(g.proveedor)), fila("Concepto", esc(g.concepto)), fila("Total", g.monto == null ? "a definir" : money(g.monto, g.moneda)), fila("Vence", g.vencimiento ? fmtD(g.vencimiento) : ""), fila("Estado", esc(g.estado)), fila("Formas", esc(formasTxt(g)))]
+    : r.tipo === "adel" ? [fila("Persona", esc(g.empleado)), fila("Monto", pesos(g.monto)), fila("Fecha", g.fecha ? fmtD(g.fecha) : ""), fila("Estado", esc(g.estado)), fila("Notas", esc(g.notas))]
+    : r.tipo === "mov" ? [fila("Concepto", esc(g.concepto)), fila("Categoría", esc(g.categoria)), fila("Persona", esc(g.persona)), fila("Monto", money(g.monto, g.moneda)), fila("Estado", esc(g.estado)), fila("Notas", esc(g.notas))]
+    : [fila("Motivo", esc(g.motivo)), fila("Pesos", g.pesos ? pesos(g.pesos) : ""), fila("Dólares", g.dolares ? usd(g.dolares) : ""), fila("Fecha", g.fecha ? fmtD(g.fecha) : ""), fila("Estado", esc(g.estado || "Hecha"))];
+  return `<div class="card ficha" id="resFicha">
+    <div class="toolbar"><div><h2 style="margin:0">${money(r.monto, r.moneda)} · ${esc(r.para)}</h2><div class="muted small" style="margin-top:2px">${esc(RES_TIPO[r.tipo])}${r.quien ? " · " + esc(r.quien) : ""} <span class="pill ${r.hecha ? "good" : "warn"}">${r.hecha ? "Hecha" : "Pendiente"}</span></div></div>
+      <div class="btns">${!r.hecha && nivRes(r.tipo) >= 3 ? `<button class="b primary" type="button" data-act="resHecha" data-id="${esc(r.k)}">Marcar hecha</button>` : ""}${nivRes(r.tipo) ? `<button class="b" type="button" data-act="resGasto" data-id="${esc(r.k)}">Ver el gasto</button>` : ""}<button class="b" type="button" data-act="resVolver">Volver</button></div></div>
+    <div class="bloques">
+    ${bloque("Reserva", [fila("Monto", money(r.monto, r.moneda)), fila("Sale de", esc(r.fuente)), fila("Para qué", esc(r.para)), fila("Fecha", r.fecha ? fmtD(r.fecha) : ""), fila("Estado", r.hecha ? "Hecha, ya se descontó" : "Pendiente, la plata está apartada")])}
+    ${bloque(RES_TIPO[r.tipo], gasto)}
+    </div>
+    <p class="muted small" style="margin:10px 0 0">La reserva sale de este ${r.tipo === "adel" ? "adelanto" : r.tipo === "pago" ? "pago" : r.tipo === "mov" ? "gasto" : "registro"}. Si cambiás el monto o de dónde sale, se actualiza sola.</p>
+  </div>`;
 }
 function cardReservas(fuente) {
   const all = reservas(fuente), pend = sortBy(all.filter(r => !r.hecha), "fecha"), hechas = sortBy(all.filter(r => r.hecha), "fecha", -1), ver = ui.resHechas.has(fuente);
+  const abierta = ui.resFicha && all.find(r => r.k === ui.resFicha);
+  if (abierta) return `<div id="resCard">${fichaReserva(abierta)}</div>`;
   const rows = [...pend, ...(ver ? hechas : [])];
-  const fila = r => `<tr class="click" data-act="verPagoRes" data-id="${r.pagoId}"><td>${r.fecha ? fmtD(r.fecha) : "—"}</td><td>${esc(r.para)}${r.para !== (r.pago.proveedor || "") ? `<div class="muted small">${esc(r.pago.proveedor || "")}</div>` : ""}</td><td class="n">${money(r.monto, r.moneda)}</td><td class="n">${r.hecha ? '<span class="pill good">Hecha</span>' : '<span class="pill warn">Pendiente</span>'}</td></tr>`;
-  return `<div class="card"><div class="toolbar"><h3 style="margin:0">Plata reservada</h3>${hechas.length ? `<button class="b small" type="button" data-act="resHechas" data-id="${esc(fuente)}">${ver ? "Ocultar las hechas" : "Ver también las hechas (" + hechas.length + ")"}</button>` : ""}</div>
-    <p class="muted small" style="margin:6px 0 0">Plata apartada para pagos cargados en Pagos y vencimientos. Se descuenta del saldo cuando la parte se marca como hecha, y ahí la reserva se libera.</p>
+  const fila = r => `<tr class="click" data-act="resVer" data-id="${esc(r.k)}"><td>${r.fecha ? fmtD(r.fecha) : "—"}</td><td>${esc(r.para)}<div class="muted small">${esc(RES_TIPO[r.tipo])}${r.quien && r.quien !== r.para ? " · " + esc(r.quien) : ""}</div></td><td class="n">${money(r.monto, r.moneda)}</td><td class="n">${r.hecha ? '<span class="pill good">Hecha</span>' : '<span class="pill warn">Pendiente</span>'}</td></tr>`;
+  return `<div class="card" id="resCard"><div class="toolbar"><h3 style="margin:0">Plata reservada</h3>${hechas.length ? `<button class="b small" type="button" data-act="resHechas" data-id="${esc(fuente)}">${ver ? "Ocultar las hechas" : "Ver también las hechas (" + hechas.length + ")"}</button>` : ""}</div>
+    <p class="muted small" style="margin:6px 0 0">Plata apartada para pagos, adelantos y gastos que todavía no se hicieron. Se descuenta del saldo cuando se marcan como hechos, y ahí la reserva se libera. Tocá una fila para ver su ficha.</p>
     ${rows.length ? `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Fecha</th><th>Para qué</th><th class="n">Monto</th><th class="n"></th></tr></thead><tbody>${rows.map(fila).join("")}</tbody></table></div>` : `<div class="empty">No hay plata reservada ${fuente === "Fondo de dueños" ? "del fondo" : "de los retiros"}.</div>`}
   </div>`;
 }
@@ -368,6 +403,21 @@ function filasPagos(list, fila) {
     if (abierto) for (const x of g) out.push(fila(x).replace('<tr class="click"', '<tr class="click subPago" style="border-left:3px solid var(--line, #ccc)"'));
   }
   return out.join("");
+}
+async function marcarForma(id, idx) {
+  const pg = S.pagos.find(x => x.id === id); if (!pg) return;
+  if (niv("pagos") < 3) { toast("Solo un editor puede marcar un pago como pagado"); return; }
+  const formas = formasDe(pg).map(f => ({...f})), f0 = idx != null ? formas[idx] : formas.find(f => !f.hecha); if (!f0 || f0.hecha) return;
+  f0.hecha = true; f0.fecha = today();
+  const todas = formas.every(f => f.hecha) && (pg.monto == null || sumaFormas(formas) >= pg.monto - 0.005);
+  const rec = {...pg, formas, estado: todas ? "Pagado" : "Pendiente", pagadoDesde: todas ? "Varias formas" : null, fechaPago: todas ? today() : null};
+  const px = proxForma(rec); if (px?.fecha) rec.vencimiento = px.fecha;
+  if (!(await quitarSalidas(id))) return;
+  let okS = true; for (const [p2, desde, fecha] of salidasDe(rec, id)) if (!(await registrarSalida(p2, desde, fecha))) { okS = false; return; }
+  if (!okS) return;
+  if (await patch("pagos", id, {formas, estado: rec.estado, pagadoDesde: rec.pagadoDesde, fechaPago: rec.fechaPago, vencimiento: rec.vencimiento || null})) {
+    toast(esReserva(f0) ? "Pagado y descontado de " + f0.desde + ". La reserva se liberó" : todas ? "Marcado como pagado" : "Parte marcada como hecha, queda saldo por pagar"); render();
+    if (todas) await crearSiguiente({...rec, id}); }
 }
 async function quitarSalidas(pagoId) {
   try {
@@ -517,6 +567,7 @@ function vCaja() {
     <div class="card tile"><div class="label">Egresos</div><div class="num neg">${pesos(c.egr)}</div><div class="note">Incluye ${pesos(c.adel)} de adelantos</div></div>
     <div class="card tile"><div class="label">Gastos pendientes de pago</div><div class="num">${pesos(movPend().reduce((t, m) => t + enPesos(m.monto, m.moneda, m.cotizacion), 0))}</div><div class="note">${movPend().length ? movPend().length + " sin pagar, no se descuentan todavía" : "Ninguno"}</div></div>
   </div>
+  ${cardReservas("Fondo de dueños")}
   ${plegCard("mov", e.id ? "Editar movimiento" : "Nuevo movimiento", !!e.id)}
     <form class="f" id="fMov">
       <label class="fl">Fecha<input id="m_fecha" name="fecha" type="date" required value="${esc(e.fecha || today())}"></label>
@@ -542,7 +593,6 @@ function vCaja() {
     ${rows.map(m => `<tr class="click" data-act="${m._k === "mov" ? "editMov" : "goAdel"}" data-id="${m.id}"><td>${fmtD(m.fecha)}${m.turno ? `<div class="muted small">${esc(m.turno)}</div>` : ""}</td><td>${esc(m.persona || "")}<div class="muted small">${esc([m.concepto, m.notas].filter(Boolean).join(" · "))}</div></td><td><span class="pill ${m.tipo === "Ingreso" ? "good" : "mute"}">${esc(m.categoria)}</span>${m.estado === "Pendiente de pago" ? ` <span class="pill warn">Pendiente de pago</span>` : ""}</td><td class="n ${m.tipo === "Ingreso" ? "pos" : ""}">${m.tipo === "Ingreso" ? "+" : "−"} ${money(m.monto, m.moneda)}${m.estado === "Pendiente de pago" ? `<div style="margin-top:4px"><button class="b small" data-act="pagarMov" data-id="${m.id}" ${roOnly(3)}>Marcar pagado</button></div>` : ""}</td></tr>`).join("")}
     </tbody></table></div>` : `<div class="empty">No hay movimientos en este período. Cargá el primero con el formulario de arriba.</div>`}
   </div>
-  ${cardReservas("Fondo de dueños")}
   ${arqueoCard("Fondo de dueños", c.saldo, Math.round(c.usd * 100) / 100)}`;
 }
 
@@ -584,18 +634,19 @@ function vFuerte() {
     <div class="card tile"><div class="label">Total en pesos</div><div class="num">${pesos(f.equiv)}</div><div class="note">Cotización fija, se cambia en Ajustes</div></div>
     ${tilesReserva("Retiros de caja")}
   </div>
+  ${cardReservas("Retiros de caja")}
   ${plegCard("cf", e.id ? "Editar retiro" : "Nuevo retiro de la caja del restorán", !!e.id)}
     <form class="f" id="fCF">
       <label class="fl">Fecha<input id="cf_fecha" name="fecha" type="date" required value="${esc(e.fecha || today())}"></label>
       <label class="fl">Tipo<select id="cf_tipo" name="tipo">${opts(["Entrada","Salida"], e.tipo || "Entrada")}</select></label>
+      <label class="fl" id="cf_estL" ${(e.tipo || "Entrada") === "Salida" ? "" : "hidden"}>Estado<select id="cf_est" name="estado">${opts(["Hecha","Pendiente"], e.estado === "Pendiente" ? "Pendiente" : "Hecha")}</select></label>
       <label class="fl">Pesos<input id="cf_p" name="pesos" inputmode="decimal" value="${e.pesos ?? ""}"></label>
       <label class="fl">Dólares<input id="cf_u" name="dolares" inputmode="decimal" value="${e.dolares ?? ""}"></label>
       <label class="fl wide">Motivo<input id="cf_mot" name="motivo" required value="${esc(e.motivo || "")}" placeholder="Retiro de la caja del restorán"></label>
       <div class="btns wide"><button class="b primary" type="submit" ${roOnly(e.id ? 3 : 2)}>${e.id ? "Guardar cambios" : "Registrar"}</button>${e.id ? `<button class="b" type="button" data-act="cancelCF">Cancelar</button><button class="b danger" type="button" ${roOnly(3)} data-act="delCF" data-id="${e.id}">Borrar</button>` : ""}<span class="muted small">Acá van solo los retiros de la caja del restorán. Lo que te dan los dueños y lo que gastás de esa plata va en Fondo de dueños.</span></div>
     </form>
-    ${rows.length ? `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Fecha</th><th>Motivo</th><th class="n">Pesos</th><th class="n">Dólares</th></tr></thead><tbody>${rows.map(x => `<tr class="click" data-act="${x._adel ? "goAdel" : "editCF"}" data-id="${x.id}"><td>${fmtD(x.fecha)}</td><td>${esc(x.motivo)} <span class="pill ${x.tipo === "Salida" ? "bad" : "good"}">${esc(x.tipo)}</span></td><td class="n">${x.pesos ? pesos(x.pesos) : "—"}</td><td class="n">${x.dolares ? usd(x.dolares) : "—"}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay retiros todavía.</div>`}
+    ${rows.length ? `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Fecha</th><th>Motivo</th><th class="n">Pesos</th><th class="n">Dólares</th></tr></thead><tbody>${rows.map(x => `<tr class="click" data-act="${x._adel ? "goAdel" : "editCF"}" data-id="${x.id}"><td>${fmtD(x.fecha)}</td><td>${esc(x.motivo)} <span class="pill ${x.tipo === "Salida" ? "bad" : "good"}">${esc(x.tipo)}</span>${cfPend(x) ? ' <span class="pill warn">Pendiente, reservada</span>' : ""}</td><td class="n">${x.pesos ? pesos(x.pesos) : "—"}</td><td class="n">${x.dolares ? usd(x.dolares) : "—"}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay retiros todavía.</div>`}
   </div>
-  ${cardReservas("Retiros de caja")}
   ${arqueoCard("Retiros de caja", f.pesos, f.usd)}`;
 }
 
@@ -983,21 +1034,23 @@ document.addEventListener("click", async ev => {
     case "cancelPago": ui.editing.pago = null; render(); break;
     case "verPagoRes": if (!niv("pagos")) break; tab = "pagos"; ui.editing = {pago: id}; ui.pagando = null; render(); window.scrollTo(0, 0); break;
     case "resHechas": if (ui.resHechas.has(id)) ui.resHechas.delete(id); else ui.resHechas.add(id); render(); break;
-    case "formaHecha": {
-      const pg = S.pagos.find(x => x.id === id); if (!pg) break;
-      if (niv("pagos") < 3) { toast("Solo un editor puede marcar un pago como pagado"); break; }
-      const formas = formasDe(pg).map(f => ({...f})), f0 = formas.find(f => !f.hecha); if (!f0) break;
-      f0.hecha = true; f0.fecha = today();
-      const todas = formas.every(f => f.hecha) && (pg.monto == null || sumaFormas(formas) >= pg.monto - 0.005);
-      const rec = {...pg, formas, estado: todas ? "Pagado" : "Pendiente", pagadoDesde: todas ? "Varias formas" : null, fechaPago: todas ? today() : null};
-      const px = proxForma(rec); if (px?.fecha) rec.vencimiento = px.fecha;
-      if (!(await quitarSalidas(id))) break;
-      let okS = true; for (const [p2, desde, fecha] of salidasDe(rec, id)) if (!(await registrarSalida(p2, desde, fecha))) { okS = false; break; }
-      if (!okS) break;
-      if (await patch("pagos", id, {formas, estado: rec.estado, pagadoDesde: rec.pagadoDesde, fechaPago: rec.fechaPago, vencimiento: rec.vencimiento || null})) {
-        toast(esReserva(f0) ? "Pagado y descontado de " + f0.desde + ". La reserva se liberó" : todas ? "Marcado como pagado" : "Parte marcada como hecha, queda saldo por pagar"); render();
-        if (todas) await crearSiguiente({...rec, id}); }
-      break; }
+    case "formaHecha": await marcarForma(id, el.dataset.i != null ? Number(el.dataset.i) : null); break;
+    case "verReservas": tab = tabFuente(id); ui.resFicha = null; ui.editing = {}; render(); $("#resCard")?.scrollIntoView({block: "start"}); break;
+    case "resVer": ui.resFicha = id; render(); $("#resCard")?.scrollIntoView({block: "start"}); break;
+    case "resVolver": ui.resFicha = null; render(); $("#resCard")?.scrollIntoView({block: "start"}); break;
+    case "resGasto": { const r = reservas().find(x => x.k === id); if (!r) break; ui.resFicha = null;
+      if (r.tipo === "pago") { tab = "pagos"; ui.editing = {pago: r.id}; ui.pagando = null; }
+      else if (r.tipo === "adel") { tab = "adelantos"; ui.editing = {adel: r.id}; }
+      else if (r.tipo === "mov") { tab = "caja"; ui.editing = {mov: r.id}; }
+      else { tab = "fuerte"; ui.editing = {cf: r.id}; }
+      render(); window.scrollTo(0, 0); if (r.tipo === "mov") $("#fMov")?.scrollIntoView({block: "center"}); break; }
+    case "resHecha": { const r = reservas().find(x => x.k === id); if (!r || r.hecha) break;
+      if (nivRes(r.tipo) < 3) { toast("Solo un editor puede marcarlo como hecho"); break; }
+      if (r.tipo === "pago") await marcarForma(r.pagoId, r.i);
+      else if (r.tipo === "adel") { if (await patch("adelantos", r.id, {estado: "Entregado", fecha: today()})) toast("Adelanto entregado y descontado de " + r.fuente + ". La reserva se liberó"); }
+      else if (r.tipo === "mov") { if (await patch("movimientos", r.id, {estado: "Pagado", fecha: today()})) toast("Gasto pagado y descontado del fondo. La reserva se liberó"); }
+      else if (await patch("cajaFuerte", r.id, {estado: "Hecha", fecha: today()})) toast("Salida hecha y descontada de Retiros de caja. La reserva se liberó");
+      render(); break; }
     case "toggleGrupo": if (ui.gruposAbiertos.has(id)) ui.gruposAbiertos.delete(id); else ui.gruposAbiertos.add(id); render(); break;
     case "fpAdd": { const fs = leerFormas(); const tot = numIn($("#pg_monto").value); const falta = tot == null ? null : Math.round((tot - sumaFormas(fs)) * 100) / 100;
       fs.push({tipo: "Cheque", monto: falta > 0 ? falta : null, fecha: null, hecha: false}); $("#fpRows").innerHTML = fpRowsHtml(fs, $("#pg_mon").value); fpRefresh(); break; }
@@ -1030,7 +1083,8 @@ document.addEventListener("submit", async ev => {
     if (d.persona.trim() && !conocidos().has(norm(d.persona))) await marcarNuevo("Persona o proveedor", d.persona.trim(), "Fondo de dueños");
     const old = S.movimientos.find(m => m.id === ui.editing.mov) || {};
     const rec = {fecha: d.fecha, turno: d.turno, tipo: d.tipo, categoria: d.categoria, concepto: d.concepto.trim(), persona: d.persona.trim(), monto, moneda: d.moneda, cotizacion: d.moneda === "US$" ? (old.cotizacion || S.cfg.cotizacion) : null, formaPago: d.formaPago, estado: d.tipo === "Ingreso" ? "Pagado" : (d.estado || "Pagado"), notas: d.notas.trim(), cargadoPor: old.cargadoPor || S.perfil?.nombre || ""};
-    if (await save("movimientos", ui.editing.mov, rec)) { toast(ui.editing.mov ? "Movimiento actualizado" : "Movimiento agregado"); ui.editing.mov = null; render(); }
+    const avM = rec.tipo === "Egreso" && rec.estado === "Pendiente de pago" ? avisoReserva("Fondo de dueños", monto, rec.moneda, ui.editing.mov) : "";
+    if (await save("movimientos", ui.editing.mov, rec)) { toast(avM ? "Guardado. Ojo: " + avM : ui.editing.mov ? "Movimiento actualizado" : "Movimiento agregado"); ui.editing.mov = null; render(); }
   } else if (f.id === "fArq") {
     const contado = numIn(d.contado); if (contado == null) { toast("Poné el efectivo contado"); return; }
     const rec = {fecha: d.fecha, cuenta: d.cuenta || "Fondo de dueños", responsable: d.responsable.trim(), saldoSistema: numIn(d.saldoSistema), contado, saldoUsd: d.saldoUsd != null ? numIn(d.saldoUsd) : null, contadoUsd: d.contadoUsd != null ? numIn(d.contadoUsd) : null, comentario: d.comentario.trim()};
@@ -1038,14 +1092,16 @@ document.addEventListener("submit", async ev => {
   } else if (f.id === "fCF") {
     const p = numIn(d.pesos), u = numIn(d.dolares); if (!p && !u) { toast("Poné pesos o dólares"); return; }
     const old = S.cajaFuerte.find(x => x.id === ui.editing.cf) || {};
-    const rec = {fecha: d.fecha, tipo: d.tipo, pesos: p, dolares: u, cotizacion: u ? (old.cotizacion || S.cfg.cotizacion) : null, motivo: d.motivo.trim()};
-    if (await save("cajaFuerte", ui.editing.cf, rec)) { toast("Guardado"); ui.editing.cf = null; render(); }
+    const rec = {fecha: d.fecha, tipo: d.tipo, pesos: p, dolares: u, cotizacion: u ? (old.cotizacion || S.cfg.cotizacion) : null, motivo: d.motivo.trim(), estado: d.tipo === "Salida" ? (d.estado === "Pendiente" ? "Pendiente" : (old.estado ? "Hecha" : null)) : null};
+    const avisos = rec.estado === "Pendiente" ? [avisoReserva("Retiros de caja", p, "$", ui.editing.cf), avisoReserva("Retiros de caja", u, "US$", ui.editing.cf)].filter(Boolean) : [];
+    if (await save("cajaFuerte", ui.editing.cf, rec)) { toast(avisos.length ? "Guardado. Ojo: " + avisos.join(" · ") : rec.estado === "Pendiente" ? "Guardado. Queda reservada hasta que la marques hecha" : "Guardado"); ui.editing.cf = null; render(); }
   } else if (f.id === "fAdel") {
     const monto = numIn(d.monto); const per = S.personal.find(p => p.id === d.personaId);
     if (!per || !monto) { toast("Elegí la persona y el monto"); return; }
     const old = S.adelantos.find(a => a.id === ui.editing.adel) || {};
     const rec = {empleado: per.nombre, personaId: per.id, fecha: d.fecha, monto, estado: d.estado, origen: d.origen || "Fondo de dueños", descontado: !!old.descontado, notas: d.notas.trim()};
-    if (await save("adelantos", ui.editing.adel, rec)) { toast(ui.editing.adel ? "Adelanto actualizado" : "Adelanto agregado a " + per.nombre); ui.editing.adel = null; ui.adelPara = null; render(); }
+    const avA = rec.estado !== "Entregado" ? avisoReserva(rec.origen, monto, "$", ui.editing.adel) : "";
+    if (await save("adelantos", ui.editing.adel, rec)) { toast(avA ? "Guardado. Ojo: " + avA : ui.editing.adel ? "Adelanto actualizado" : "Adelanto agregado a " + per.nombre); ui.editing.adel = null; ui.adelPara = null; render(); }
   } else if (f.id === "fBaja") {
     const per = S.personal.find(x => x.id === ui.editing.per); if (!per) return;
     if (!d.fecha || !d.motivo.trim()) { toast("Poné la fecha y el motivo"); return; }
@@ -1107,6 +1163,7 @@ document.addEventListener("change", async ev => {
   if (t.id === "pg_monto" || t.id === "pg_mon") { if ($("#fpSuma")) fpRefresh(); }
   if (t.id === "pg_est") { document.querySelectorAll(".pgPag").forEach(x => x.hidden = t.value !== "Pagado" || (x.id === "pg_desdeNL" && $("#pg_desde").value !== "__nuevo")); resRefresh(); }
   else if (t.id === "pg_res") resRefresh();
+  else if (t.id === "cf_tipo") $("#cf_estL").hidden = t.value !== "Salida";
   else if (t.id === "pg_desde") { $("#pg_desdeNL").hidden = t.value !== "__nuevo"; if (t.value === "__nuevo") $("#pg_desdeN").focus(); }
   else if (t.id === "ad_emp") { ui.adelPara = t.value || null; }
   else if (t.id === "m_cat") { $("#m_catNuevaL").hidden = t.value !== "__nuevo"; if (t.value === "__nuevo") $("#m_catNueva").focus(); }
