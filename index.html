@@ -772,6 +772,83 @@ async function guardarPropinas() {
   }
   toast(ok ? "Propinas guardadas" : "Algunas no se pudieron guardar, probá de nuevo"); render();
 }
+/* recibo de propina para firmar */
+const LET_U = ["","uno","dos","tres","cuatro","cinco","seis","siete","ocho","nueve","diez","once","doce","trece","catorce","quince","dieciséis","diecisiete","dieciocho","diecinueve","veinte","veintiuno","veintidós","veintitrés","veinticuatro","veinticinco","veintiséis","veintisiete","veintiocho","veintinueve"];
+const LET_D = ["","","","treinta","cuarenta","cincuenta","sesenta","setenta","ochenta","noventa"];
+const LET_C = ["","ciento","doscientos","trescientos","cuatrocientos","quinientos","seiscientos","setecientos","ochocientos","novecientos"];
+const let100 = n => n < 30 ? LET_U[n] : LET_D[Math.floor(n / 10)] + (n % 10 ? " y " + LET_U[n % 10] : "");
+const let1000 = n => n === 100 ? "cien" : ((Math.floor(n / 100) ? LET_C[Math.floor(n / 100)] + " " : "") + let100(n % 100)).trim();
+const apoc = t => t.replace(/uno$/, "un").replace(/veintiuno$/, "veintiún");
+function enLetras(n) {
+  n = Math.round(n); if (!n) return "cero";
+  const mill = Math.floor(n / 1e6), mil = Math.floor(n % 1e6 / 1000), r = n % 1000;
+  return [mill ? (mill === 1 ? "un millón" : apoc(let1000(mill)) + " millones") : "", mil ? (mil === 1 ? "mil" : apoc(let1000(mil)) + " mil") : "", r ? let1000(r) : ""].filter(Boolean).join(" ");
+}
+const nroRecibo = sem => "PR-" + sem;
+function reciboPropHtml(sem, e, st) {
+  const lista = sortBy(S.personal.filter(p => estadoPersona(p) === "Activo" || p.id === st.recibe), "nombre");
+  const per = S.personal.find(p => p.id === st.recibe), verCI = priv("documentos");
+  const faltaCI = per && verCI && !(per.documento || "").trim();
+  return `<h3 style="margin:14px 0 8px;font-size:1em">Recibo para firmar</h3><div class="f">
+    <label class="fl">Entregada a<select id="pr_recibe" ${roOnly(2)}><option value="">Elegí la persona…</option>${lista.map(p => `<option value="${esc(p.id)}" ${p.id === st.recibe ? "selected" : ""}>${esc(p.nombre)}${p.cargo ? " · " + esc(p.cargo) : ""}</option>`).join("")}</select></label>
+    ${faltaCI ? `<label class="fl">C.I. de ${esc(per.nombre)}<input id="pr_ci" inputmode="numeric" placeholder="No está en su ficha"></label>` : per && verCI ? `<div class="fl small muted" style="align-self:end">C.I. cargada en su ficha, sale en el recibo</div>` : ""}
+    <div class="btns wide"><button class="b" type="button" data-act="reciboProp" data-id="${esc(sem)}" ${e.ent ? "" : "disabled"}>Descargar recibo (PDF)</button><span class="muted small">${e.ent ? "Sale con lo ya entregado: " + pesos(e.ent) + (faltaCI ? ". La C.I. que pongas se guarda en su ficha." : "") : "Se habilita cuando hay algo entregado."}</span></div>
+  </div>`;
+}
+async function descargarReciboProp(sem) {
+  const st = S.semanasPropina.find(s => s.id === sem) || {}, per = S.personal.find(p => p.id === st.recibe);
+  if (!per) { toast("Elegí a quién se entrega la propina"); $("#pr_recibe")?.focus(); return; }
+  let ci = priv("documentos") ? (per.documento || "").trim() : "";
+  if (priv("documentos") && !ci) {
+    ci = ($("#pr_ci")?.value || "").trim();
+    if (!ci) { toast("Falta la C.I. de " + per.nombre + ". Escribila y se guarda en su ficha"); $("#pr_ci")?.focus(); return; }
+    if (!(await guardarPriv(per.id, {documento: ci}, per))) return;
+    per.documento = ci;
+  }
+  const e = propEstado(sem), w = semanaPropina(sem), hechas = e.ps.filter(p => p.hecha);
+  if (!hechas.length) { toast("Todavía no hay nada entregado"); return; }
+  toast("Armando el recibo…");
+  try { await cargarScript("https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"); } catch (err) { toast("No se pudo cargar el generador de PDF. Probá de nuevo."); return; }
+  const {jsPDF} = window.jspdf, doc = new jsPDF({unit: "mm", format: "a4"}), W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
+  const logo = document.querySelector("img.logo")?.src;
+  const total = Math.round(e.ent), fEnt = hechas.map(p => p.fecha).filter(Boolean).sort().pop() || today();
+  const pes = {}; let usdT = 0, usdEq = 0, cotU = S.cfg.cotizacion;
+  hechas.forEach(p => { if (p.moneda === "US$") { usdT += p.monto; usdEq += p.eq; cotU = p.reg.cotizacion || cotU; } else pes[p.fuente] = (pes[p.fuente] || 0) + p.monto; });
+  const pesT = Object.values(pes).reduce((a, b) => a + b, 0);
+  const dias = w.dias.filter(r => r.t), dd = f => dia(f) + " " + fmtD(f).slice(0, 5);
+  const rango = dias.length ? `del ${dd(dias[0].f)}/${dias[0].f.slice(0, 4)} al ${dd(dias[dias.length - 1].f)}/${dias[dias.length - 1].f.slice(0, 4)}` : `del ${fmtD(sem)} al ${fmtD(addDays(sem, 6))}`;
+  const p0 = s => "$ " + nf0.format(Math.round(s));
+  const uno = (y0, copia) => {
+    const x = 18; doc.setDrawColor(150); doc.roundedRect(12, y0, W - 24, 128, 4, 4);
+    if (logo) { try { doc.addImage(logo, "JPEG", x, y0 + 5, 26, 17); } catch (err) {} }
+    doc.setTextColor(0); doc.setFont("helvetica", "bold"); doc.setFontSize(15); doc.text("Recibo de propina", x + 30, y0 + 11);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(85);
+    doc.text("TORO NEGRO · MANDU SAS · RUT 221089590010", x + 30, y0 + 16); doc.text("Rambla Claudio Williman (parada 19) y Av. Antonio Camacho, Maldonado", x + 30, y0 + 20);
+    doc.setTextColor(0); doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.text(copia, W - 18, y0 + 11, {align: "right"});
+    doc.setFont("helvetica", "normal"); doc.text("Nº " + nroRecibo(sem), W - 18, y0 + 16, {align: "right"});
+    doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.text(p0(total), W - 18, y0 + 23, {align: "right"});
+    let y = y0 + 33; doc.setFont("helvetica", "normal"); doc.setFontSize(10.5);
+    doc.splitTextToSize(`Recibí de MANDU SAS (Toro Negro) la suma de ${p0(total)} (${enLetras(total)} pesos uruguayos) por la propina cobrada con tarjeta ${rango}, entregada en efectivo así:`, W - 36).forEach(l => { doc.text(l, x, y); y += 5.5; });
+    doc.setFontSize(9.5);
+    const lin = [];
+    if (pesT) lin.push(`• ${p0(pesT)} en pesos` + (Object.keys(pes).length > 1 ? " (" + Object.entries(pes).map(([f, m]) => f + " " + p0(m)).join(" y ") + ")" : " (" + Object.keys(pes)[0] + ")"));
+    if (usdT) lin.push(`• US$ ${nf0.format(usdT)} a $ ${nf0.format(cotU)} = ${p0(usdEq)}`);
+    lin.forEach(l => { doc.text(l, x + 4, y); y += 5; });
+    y += 2; const cols = [x, x + 45, x + 80, x + 115]; doc.setFont("helvetica", "bold"); doc.setFontSize(8.5);
+    ["Día", "Turno día", "Turno noche", "Total"].forEach((t, i) => doc.text(t, cols[i], y)); y += 1.5; doc.line(x, y, x + 140, y); y += 4; doc.setFont("helvetica", "normal");
+    dias.forEach(r => { [dd(r.f), p0(r.d), p0(r.n), p0(r.t)].forEach((t, i) => doc.text(t, cols[i], y)); y += 4.2; });
+    doc.line(x, y - 2.5, x + 140, y - 2.5); doc.setFont("helvetica", "bold"); doc.text("Total semana", x, y + 1); doc.text(p0(w.total), cols[3], y + 1);
+    if (Math.abs(w.total - total) > 1) { doc.setFont("helvetica", "normal"); doc.setTextColor(120); doc.text(`Esta entrega: ${p0(total)}. Falta entregar ${p0(w.total - total)}.`, x, y + 5.5); doc.setTextColor(0); }
+    const yb = y0 + 108; doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+    doc.text(`Recibe: ${per.nombre}${per.cargo ? " · " + per.cargo : ""}${per.sector ? " · " + (per.sector === "Sala" ? "Salón" : per.sector) : ""}`, x, yb - 8);
+    doc.text("Fecha de entrega: " + fmtD(fEnt), x, yb - 2); doc.text("C.I.: " + (ci || "______________________"), W - 95, yb - 2);
+    doc.line(x, yb + 12, x + 70, yb + 12); doc.line(W - 95, yb + 12, W - 18, yb + 12); doc.setFontSize(8.5);
+    doc.text("Firma de quien recibe", x, yb + 16); doc.text("Entrega: " + (S.perfil?.nombre || "") + " (administración)", W - 95, yb + 16);
+  };
+  uno(8, "ORIGINAL"); doc.setLineDashPattern([1.5, 1.5], 0); doc.setDrawColor(190); doc.line(8, H / 2, W - 8, H / 2); doc.setLineDashPattern([], 0);
+  uno(H / 2 + 6, "COPIA PARA LA EMPRESA");
+  doc.save(`recibo_propina_${sem}_${norm(per.nombre).normalize("NFD").replace(/[^a-z0-9]+/g, "_")}.pdf`);
+}
 function cardPagoProp(sem) {
   const e = propEstado(sem), st = S.semanasPropina.find(s => s.id === sem) || {}, w = semanaPropina(sem);
   const orden = ["Retiros de caja", "Fondo de dueños"], fuentes = orden.filter(fu => niv(tabFuente(fu)) >= 1), puede = orden.filter(fu => niv(tabFuente(fu)) >= 2);
@@ -786,6 +863,7 @@ function cardPagoProp(sem) {
     <div class="grid">${t("Total de la semana", pesos(e.total))}${t("Entregado", pesos(e.ent), "", e.ent ? "pos" : "")}${t("Reservado", pesos(e.res))}${t("Falta cubrir", pesos(e.falta), e.falta ? "Sin reservar ni entregar" : "Cubierto", e.falta ? "neg" : "")}</div>
     ${fuentes.length ? `<h3 style="margin:14px 0 8px;font-size:1em">De dónde puede salir</h3><div class="grid">${fuentes.map(sal).join("")}</div>` : ""}
     ${e.ps.length ? `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Fecha</th><th>Sale de</th><th class="n">Monto</th><th class="n">Estado</th></tr></thead><tbody>${e.ps.map(fila).join("")}</tbody></table></div><p class="muted small" style="margin:6px 0 0">Tocá una fila para ver su ficha en ${e.ps.some(p => p.fuente === "Fondo de dueños") && e.ps.some(p => p.fuente === "Retiros de caja") ? "Retiros de caja o Fondo de dueños" : esc(e.ps[0].fuente)}.</p>` : ""}
+    ${reciboPropHtml(sem, e, st)}
     ${puede.length ? `<h3 style="margin:14px 0 8px;font-size:1em">Reservar o entregar</h3><form class="f" id="fPropRes">
       <input type="hidden" name="semana" value="${esc(sem)}">
       <label class="fl">Sale de<select id="pr_desde" name="desde">${opts(puede, puede[0])}</select></label>
@@ -1103,6 +1181,7 @@ document.addEventListener("click", async ev => {
     case "semPrev": ui.semana = addDays(ui.semana, -7); render(); break;
     case "semNext": ui.semana = addDays(ui.semana, 7); render(); break;
     case "verSem": ui.semana = id; render(); window.scrollTo(0, 0); break;
+    case "reciboProp": descargarReciboProp(id); break;
     case "goProp": tab = "propinas"; ui.semana = id; ui.editing = {}; ui.resFicha = null; render(); $("#propPago")?.scrollIntoView({block: "start"}); break;
     case "propParte": { const r = reservas().find(x => x.k === id); if (!r) break; tab = tabFuente(r.fuente); ui.editing = {}; ui.resFicha = r.k; render(); $("#resCard")?.scrollIntoView({block: "start"}); break; }
     case "newPer": ui.editing.per = "nuevo"; render(); $("#fPer input[name=nombre]")?.focus(); break;
@@ -1299,6 +1378,9 @@ document.addEventListener("change", async ev => {
     if (String(numIn(t.value) ?? t.value.trim()) === String(cur)) delete ui.propDraft[k]; else ui.propDraft[k] = t.value.trim();
     t.classList.toggle("dirty", k in ui.propDraft);
     $("#btnProp").textContent = propBtnTxt(); $("#propEstado").textContent = Object.keys(ui.propDraft).length ? "Hay cambios sin guardar" : "Todo guardado";
+  } else if (t.id === "pr_recibe") {
+    const cur = S.semanasPropina.find(s => s.id === ui.semana) || {};
+    if (await save("semanasPropina", ui.semana, {acreditada: !!cur.acreditada, entregada: !!cur.entregada, recibe: t.value || null})) toast(t.value ? "Guardado a quién se entrega" : "Sacado");
   } else if (t.dataset.sem) {
     const cur = S.semanasPropina.find(s => s.id === ui.semana) || {};
     await save("semanasPropina", ui.semana, {acreditada: !!cur.acreditada, entregada: !!cur.entregada, [t.dataset.sem]: t.checked});
