@@ -426,6 +426,34 @@ async function quitarSalidas(pagoId) {
     return true;
   } catch (e) { toast("No se pudo corregir el descuento"); return false; }
 }
+const pagoDe = x => x?.pagoId ? S.pagos.find(p => p.id === x.pagoId) || null : null;
+const montoCF = (c, moneda) => moneda === "US$" ? (c.dolares || 0) : (c.pesos || 0);
+const salidasDePago = id => [...S.movimientos.filter(m => m.pagoId === id).map(m => "Fondo de dueños " + money(m.monto, m.moneda)), ...S.cajaFuerte.filter(c => c.pagoId === id).map(c => "Retiros de caja " + (c.dolares ? usd(c.dolares) : pesos(c.pesos)))];
+const tagPago = x => { const pg = pagoDe(x); return pg ? ` <span class="pill mute" title="Viene de Pagos y vencimientos">De Pagos y vencimientos: ${esc(pg.proveedor || "")}</span>` : ""; };
+function notaVinc(x) {
+  const pg = pagoDe(x); if (!pg) return "";
+  return `<div class="wide small" style="padding:8px 10px;border-left:3px solid var(--line, #ccc)">Esta salida es el pago a <b>${esc(pg.proveedor || "")}</b> (${money(pg.monto, pg.moneda)}) de Pagos y vencimientos. Si cambiás el monto o la fecha, el pago se actualiza igual. <button class="b small" type="button" data-act="goPago" data-id="${pg.id}">Ver el pago</button></div>`;
+}
+function avisoBorrar(kind, id) {
+  if (!id || ui.borrarVinc !== kind + ":" + id) return "";
+  let txt;
+  if (kind === "pago") { const pg = S.pagos.find(p => p.id === id); txt = `Este pago a <b>${esc(pg?.proveedor || "")}</b> tiene su salida en ${esc(salidasDePago(id).join(" y "))}. Si lo borrás, se borra también esa salida y la plata vuelve al saldo.`; }
+  else { const x = (kind === "mov" ? S.movimientos : S.cajaFuerte).find(m => m.id === id), pg = pagoDe(x), otras = salidasDePago(pg.id).length - 1; txt = `Esto es el pago a <b>${esc(pg.proveedor || "")}</b> (${money(pg.monto, pg.moneda)}) de Pagos y vencimientos. Si lo borrás, se borra también el pago${otras > 0 ? " y sus otras salidas" : ""}.`; }
+  return `<div class="wide" style="padding:10px;border:2px solid #c0392b;border-radius:8px"><div style="margin-bottom:8px">${txt} ¿Borrar los dos?</div><div class="btns"><button class="b danger" type="button" data-act="borrarVincOk" ${roOnly(3)}>Sí, borrar los dos</button><button class="b" type="button" data-act="borrarVincNo">No borrar</button></div></div>`;
+}
+async function syncPago(pagoId, fuente, oldMonto, monto, fecha) {
+  const pg = S.pagos.find(p => p.id === pagoId); if (!pg) return false;
+  const r2 = n => Math.round(n * 100) / 100, fs = formasDe(pg);
+  let upd;
+  if (fs.length) {
+    const ok = f => f.hecha && f.tipo === "Efectivo" && f.desde === fuente;
+    let i = fs.findIndex(f => ok(f) && Math.abs((Number(f.monto) || 0) - oldMonto) < 0.005); if (i < 0) i = fs.findIndex(ok); if (i < 0) return false;
+    const formas = fs.map((f, j) => j === i ? {...f, monto, fecha} : f);
+    const fechas = formas.filter(f => f.hecha && f.fecha).map(f => f.fecha).sort();
+    upd = {formas, monto: pg.monto != null ? r2(Number(pg.monto) + monto - oldMonto) : monto, fechaPago: fechas[fechas.length - 1] || fecha};
+  } else upd = {monto, fechaPago: fecha};
+  return await patch("pagos", pg.id, upd) ? pg : false;
+}
 async function remove(col, id) {
   try { await db.collection(col).doc(id).delete(); toast("Borrado"); } catch (e) { toast("No se pudo borrar"); }
 }
@@ -582,7 +610,9 @@ function vCaja() {
       <label class="fl">Estado<select id="m_estado" name="estado">${opts(["Pagado","Pendiente de pago"], e.estado || "Pagado")}</select></label>
       <label class="fl">Forma de pago<select id="m_fp" name="formaPago">${opts(["Efectivo","Transferencia","Cheque","Tarjeta"], e.formaPago || "Efectivo")}</select></label>
       <label class="fl wide">Notas<input id="m_notas" name="notas" value="${esc(e.notas || "")}"></label>
+      ${notaVinc(e)}
       <div class="btns wide"><button class="b primary" type="submit" ${roOnly(e.id ? 3 : 2)}>${e.id ? "Guardar cambios" : "Agregar movimiento"}</button>${e.id ? `<button class="b" type="button" data-act="cancelMov">Cancelar</button><button class="b danger" type="button" ${roOnly(3)} data-act="delMov" data-id="${e.id}">Borrar</button>` : ""}<span class="muted small">Los adelantos se cargan en la pestaña Adelantos. Si escribís una persona o proveedor que no está en la lista, queda anotado para pasar a Drive.</span></div>
+      ${avisoBorrar("mov", e.id)}
     </form>
     <datalist id="dlPersonas">${[...new Set([...S.personal.map(p => p.nombre), ...S.pagos.map(p => p.proveedor)].filter(Boolean))].sort().map(n => `<option value="${esc(n)}">`).join("")}</datalist>
   </div>
@@ -590,7 +620,7 @@ function vCaja() {
     <div class="toolbar"><h3 style="margin:0">Movimientos</h3>
       <select id="movSemana" aria-label="Período"><option value="">Todos</option><option value="${monday(today())}" ${ui.movSemana === monday(today()) ? "selected" : ""}>Esta semana</option><option value="${today()}" ${ui.movSemana === today() ? "selected" : ""}>Hoy</option></select></div>
     ${rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Detalle</th><th>Categoría</th><th class="n">Monto</th></tr></thead><tbody>
-    ${rows.map(m => `<tr class="click" data-act="${m._k === "mov" ? "editMov" : "goAdel"}" data-id="${m.id}"><td>${fmtD(m.fecha)}${m.turno ? `<div class="muted small">${esc(m.turno)}</div>` : ""}</td><td>${esc(m.persona || "")}<div class="muted small">${esc([m.concepto, m.notas].filter(Boolean).join(" · "))}</div></td><td><span class="pill ${m.tipo === "Ingreso" ? "good" : "mute"}">${esc(m.categoria)}</span>${m.estado === "Pendiente de pago" ? ` <span class="pill warn">Pendiente de pago</span>` : ""}</td><td class="n ${m.tipo === "Ingreso" ? "pos" : ""}">${m.tipo === "Ingreso" ? "+" : "−"} ${money(m.monto, m.moneda)}${m.estado === "Pendiente de pago" ? `<div style="margin-top:4px"><button class="b small" data-act="pagarMov" data-id="${m.id}" ${roOnly(3)}>Marcar pagado</button></div>` : ""}</td></tr>`).join("")}
+    ${rows.map(m => `<tr class="click" data-act="${m._k === "mov" ? "editMov" : "goAdel"}" data-id="${m.id}"><td>${fmtD(m.fecha)}${m.turno ? `<div class="muted small">${esc(m.turno)}</div>` : ""}</td><td>${esc(m.persona || "")}<div class="muted small">${esc([m.concepto, m.notas].filter(Boolean).join(" · "))}</div></td><td><span class="pill ${m.tipo === "Ingreso" ? "good" : "mute"}">${esc(m.categoria)}</span>${m._k === "mov" ? tagPago(m) : ""}${m.estado === "Pendiente de pago" ? ` <span class="pill warn">Pendiente de pago</span>` : ""}</td><td class="n ${m.tipo === "Ingreso" ? "pos" : ""}">${m.tipo === "Ingreso" ? "+" : "−"} ${money(m.monto, m.moneda)}${m.estado === "Pendiente de pago" ? `<div style="margin-top:4px"><button class="b small" data-act="pagarMov" data-id="${m.id}" ${roOnly(3)}>Marcar pagado</button></div>` : ""}</td></tr>`).join("")}
     </tbody></table></div>` : `<div class="empty">No hay movimientos en este período. Cargá el primero con el formulario de arriba.</div>`}
   </div>
   ${arqueoCard("Fondo de dueños", c.saldo, Math.round(c.usd * 100) / 100)}`;
@@ -643,9 +673,11 @@ function vFuerte() {
       <label class="fl">Pesos<input id="cf_p" name="pesos" inputmode="decimal" value="${e.pesos ?? ""}"></label>
       <label class="fl">Dólares<input id="cf_u" name="dolares" inputmode="decimal" value="${e.dolares ?? ""}"></label>
       <label class="fl wide">Motivo<input id="cf_mot" name="motivo" required value="${esc(e.motivo || "")}" placeholder="Retiro de la caja del restorán"></label>
+      ${notaVinc(e)}
       <div class="btns wide"><button class="b primary" type="submit" ${roOnly(e.id ? 3 : 2)}>${e.id ? "Guardar cambios" : "Registrar"}</button>${e.id ? `<button class="b" type="button" data-act="cancelCF">Cancelar</button><button class="b danger" type="button" ${roOnly(3)} data-act="delCF" data-id="${e.id}">Borrar</button>` : ""}<span class="muted small">Acá van solo los retiros de la caja del restorán. Lo que te dan los dueños y lo que gastás de esa plata va en Fondo de dueños.</span></div>
+      ${avisoBorrar("cf", e.id)}
     </form>
-    ${rows.length ? `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Fecha</th><th>Motivo</th><th class="n">Pesos</th><th class="n">Dólares</th></tr></thead><tbody>${rows.map(x => `<tr class="click" data-act="${x._adel ? "goAdel" : "editCF"}" data-id="${x.id}"><td>${fmtD(x.fecha)}</td><td>${esc(x.motivo)} <span class="pill ${x.tipo === "Salida" ? "bad" : "good"}">${esc(x.tipo)}</span>${cfPend(x) ? ' <span class="pill warn">Pendiente, reservada</span>' : ""}</td><td class="n">${x.pesos ? pesos(x.pesos) : "—"}</td><td class="n">${x.dolares ? usd(x.dolares) : "—"}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay retiros todavía.</div>`}
+    ${rows.length ? `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Fecha</th><th>Motivo</th><th class="n">Pesos</th><th class="n">Dólares</th></tr></thead><tbody>${rows.map(x => `<tr class="click" data-act="${x._adel ? "goAdel" : "editCF"}" data-id="${x.id}"><td>${fmtD(x.fecha)}</td><td>${esc(x.motivo)} <span class="pill ${x.tipo === "Salida" ? "bad" : "good"}">${esc(x.tipo)}</span>${x._adel ? "" : tagPago(x)}${cfPend(x) ? ' <span class="pill warn">Pendiente, reservada</span>' : ""}</td><td class="n">${x.pesos ? pesos(x.pesos) : "—"}</td><td class="n">${x.dolares ? usd(x.dolares) : "—"}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No hay retiros todavía.</div>`}
   </div>
   ${arqueoCard("Retiros de caja", f.pesos, f.usd)}`;
 }
@@ -948,6 +980,7 @@ function vPagos() {
         <div class="btns"><button class="b small" type="button" data-act="fpAdd">+ Agregar forma de pago</button></div></div>
       <label class="fl wide">Notas<input id="pg_not" name="notas" value="${esc(e.notas || "")}"></label>
       <div class="btns wide"><button class="b primary" type="submit" ${roOnly(e.id ? 3 : 2)}>${e.id ? "Guardar cambios" : "Agregar"}</button>${e.id ? `<button class="b" type="button" data-act="cancelPago">Cancelar</button><button class="b danger" type="button" ${roOnly(3)} data-act="delPago" data-id="${e.id}">Borrar</button>` : ""}</div>
+      ${avisoBorrar("pago", e.id)}
     </form>
   </div>
   ${vPagosFecha()}
@@ -979,10 +1012,17 @@ document.addEventListener("click", async ev => {
   const id = el.dataset.id, act = el.dataset.act;
   const conf = async (fn) => { if (el.dataset.confirm) { await fn(); } else { el.dataset.confirm = "1"; el.textContent = "¿Seguro? Tocá de nuevo"; setTimeout(() => { if (el.isConnected) { delete el.dataset.confirm; el.textContent = "Borrar"; } }, 3000); } };
   switch (act) {
+    case "borrarVincNo": ui.borrarVinc = null; render(); break;
+    case "borrarVincOk": {
+      const [k, rid] = (ui.borrarVinc || "").split(":"); if (!rid) break;
+      const pid = k === "pago" ? rid : (k === "mov" ? S.movimientos : S.cajaFuerte).find(x => x.id === rid)?.pagoId;
+      if (pid && await quitarSalidas(pid)) { try { await db.collection("pagos").doc(pid).delete(); toast("Borrados el pago y su salida"); } catch (e) { toast("Se borró la salida pero no el pago, probá de nuevo"); } }
+      ui.borrarVinc = null; ui.editing = {...ui.editing, mov: null, cf: null, pago: null}; render(); break; }
+    case "goPago": tab = "pagos"; ui.editing = {pago: id}; ui.pagando = null; render(); window.scrollTo(0, 0); break;
     case "editMov": ui.editing.mov = id; render(); $("#fMov").scrollIntoView({block: "center"}); break;
     case "cancelMov": ui.editing.mov = null; render(); break;
     case "pagarMov": if (await patch("movimientos", id, {estado: "Pagado", fecha: today()})) toast("Marcado como pagado hoy, ya se descontó del fondo"); break;
-    case "delMov": conf(async () => { await remove("movimientos", id); ui.editing.mov = null; }); break;
+    case "delMov": if (pagoDe(S.movimientos.find(m => m.id === id))) { ui.borrarVinc = "mov:" + id; render(); break; } conf(async () => { await remove("movimientos", id); ui.editing.mov = null; }); break;
     case "goAdel": tab = "adelantos"; ui.editing = {adel: id}; render(); window.scrollTo(0, 0); break;
     case "darAdel": tab = "adelantos"; ui.editing = {}; ui.adelPara = id; render(); window.scrollTo(0, 0); $("#ad_monto")?.focus(); break;
     case "perDesdeAdel": tab = "personal"; ui.editing = {per: "nuevo"}; render(); window.scrollTo(0, 0); break;
@@ -991,7 +1031,7 @@ document.addEventListener("click", async ev => {
     case "delArq": conf(async () => { await remove("arqueos", id); ui.editing.arq = null; }); break;
     case "editCF": ui.editing.cf = id; render(); break;
     case "cancelCF": ui.editing.cf = null; render(); break;
-    case "delCF": conf(async () => { await remove("cajaFuerte", id); ui.editing.cf = null; }); break;
+    case "delCF": if (pagoDe(S.cajaFuerte.find(m => m.id === id))) { ui.borrarVinc = "cf:" + id; render(); break; } conf(async () => { await remove("cajaFuerte", id); ui.editing.cf = null; }); break;
     case "editAdel": ui.editing.adel = id; render(); window.scrollTo(0, 0); break;
     case "cancelAdel": ui.editing.adel = null; render(); break;
     case "delAdel": conf(async () => { await remove("adelantos", id); ui.editing.adel = null; }); break;
@@ -1055,7 +1095,7 @@ document.addEventListener("click", async ev => {
     case "fpAdd": { const fs = leerFormas(); const tot = numIn($("#pg_monto").value); const falta = tot == null ? null : Math.round((tot - sumaFormas(fs)) * 100) / 100;
       fs.push({tipo: "Cheque", monto: falta > 0 ? falta : null, fecha: null, hecha: false}); $("#fpRows").innerHTML = fpRowsHtml(fs, $("#pg_mon").value); fpRefresh(); break; }
     case "fpDel": { const fs = leerFormas(); fs.splice(Number(el.dataset.i), 1); $("#fpRows").innerHTML = fpRowsHtml(fs, $("#pg_mon").value); fpRefresh(); break; }
-    case "delPago": conf(async () => { await quitarSalidas(id); await remove("pagos", id); ui.editing.pago = null; }); break;
+    case "delPago": if (salidasDePago(id).length) { ui.borrarVinc = "pago:" + id; render(); break; } conf(async () => { await quitarSalidas(id); await remove("pagos", id); ui.editing.pago = null; }); break;
     case "pagar": ui.pagando = id; render(); break;
     case "pagarCancel": ui.pagando = null; render(); break;
     case "pagarDesde": {
@@ -1084,7 +1124,10 @@ document.addEventListener("submit", async ev => {
     const old = S.movimientos.find(m => m.id === ui.editing.mov) || {};
     const rec = {fecha: d.fecha, turno: d.turno, tipo: d.tipo, categoria: d.categoria, concepto: d.concepto.trim(), persona: d.persona.trim(), monto, moneda: d.moneda, cotizacion: d.moneda === "US$" ? (old.cotizacion || S.cfg.cotizacion) : null, formaPago: d.formaPago, estado: d.tipo === "Ingreso" ? "Pagado" : (d.estado || "Pagado"), notas: d.notas.trim(), cargadoPor: old.cargadoPor || S.perfil?.nombre || ""};
     const avM = rec.tipo === "Egreso" && rec.estado === "Pendiente de pago" ? avisoReserva("Fondo de dueños", monto, rec.moneda, ui.editing.mov) : "";
-    if (await save("movimientos", ui.editing.mov, rec)) { toast(avM ? "Guardado. Ojo: " + avM : ui.editing.mov ? "Movimiento actualizado" : "Movimiento agregado"); ui.editing.mov = null; render(); }
+    if (old.pagoId) rec.pagoId = old.pagoId;
+    if (await save("movimientos", ui.editing.mov, rec)) {
+      const sp = pagoDe(old) && (Math.abs((old.monto || 0) - monto) > 0.004 || old.fecha !== rec.fecha) ? await syncPago(old.pagoId, "Fondo de dueños", old.monto || 0, monto, rec.fecha) : null;
+      toast(avM ? "Guardado. Ojo: " + avM : sp ? "Movimiento actualizado. También se actualizó el pago a " + (sp.proveedor || "") + " en Pagos y vencimientos" : ui.editing.mov ? "Movimiento actualizado" : "Movimiento agregado"); ui.editing.mov = null; render(); }
   } else if (f.id === "fArq") {
     const contado = numIn(d.contado); if (contado == null) { toast("Poné el efectivo contado"); return; }
     const rec = {fecha: d.fecha, cuenta: d.cuenta || "Fondo de dueños", responsable: d.responsable.trim(), saldoSistema: numIn(d.saldoSistema), contado, saldoUsd: d.saldoUsd != null ? numIn(d.saldoUsd) : null, contadoUsd: d.contadoUsd != null ? numIn(d.contadoUsd) : null, comentario: d.comentario.trim()};
@@ -1094,7 +1137,11 @@ document.addEventListener("submit", async ev => {
     const old = S.cajaFuerte.find(x => x.id === ui.editing.cf) || {};
     const rec = {fecha: d.fecha, tipo: d.tipo, pesos: p, dolares: u, cotizacion: u ? (old.cotizacion || S.cfg.cotizacion) : null, motivo: d.motivo.trim(), estado: d.tipo === "Salida" ? (d.estado === "Pendiente" ? "Pendiente" : (old.estado ? "Hecha" : null)) : null};
     const avisos = rec.estado === "Pendiente" ? [avisoReserva("Retiros de caja", p, "$", ui.editing.cf), avisoReserva("Retiros de caja", u, "US$", ui.editing.cf)].filter(Boolean) : [];
-    if (await save("cajaFuerte", ui.editing.cf, rec)) { toast(avisos.length ? "Guardado. Ojo: " + avisos.join(" · ") : rec.estado === "Pendiente" ? "Guardado. Queda reservada hasta que la marques hecha" : "Guardado"); ui.editing.cf = null; render(); }
+    if (old.pagoId) rec.pagoId = old.pagoId;
+    const pgV = pagoDe(old), mOld = pgV ? montoCF(old, pgV.moneda) : 0, mNew = pgV ? montoCF(rec, pgV.moneda) : 0;
+    if (await save("cajaFuerte", ui.editing.cf, rec)) {
+      if (pgV && (Math.abs(mOld - mNew) > 0.004 || old.fecha !== rec.fecha)) { const sp = await syncPago(old.pagoId, "Retiros de caja", mOld, mNew, rec.fecha); if (sp) { toast("Guardado. También se actualizó el pago a " + (sp.proveedor || "") + " en Pagos y vencimientos"); ui.editing.cf = null; render(); return; } }
+      toast(avisos.length ? "Guardado. Ojo: " + avisos.join(" · ") : rec.estado === "Pendiente" ? "Guardado. Queda reservada hasta que la marques hecha" : "Guardado"); ui.editing.cf = null; render(); }
   } else if (f.id === "fAdel") {
     const monto = numIn(d.monto); const per = S.personal.find(p => p.id === d.personaId);
     if (!per || !monto) { toast("Elegí la persona y el monto"); return; }
