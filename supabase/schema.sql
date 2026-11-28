@@ -179,6 +179,7 @@ alter table movimientos add column if not exists "pagoId" text;
 alter table "cajaFuerte" add column if not exists "pagoId" text;
 alter table movimientos add column if not exists "semanaPropina" text;
 alter table "cajaFuerte" add column if not exists "semanaPropina" text;
+alter table "semanasPropina" add column if not exists recibe text;
 
 -- 20/11: fecha en que se descontó el adelanto
 alter table adelantos add column if not exists "descontadoFecha" date;
