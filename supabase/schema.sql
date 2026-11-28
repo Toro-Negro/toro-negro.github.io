@@ -177,6 +177,8 @@ alter table public.arqueos add column if not exists cuenta text not null default
 -- 20/11: vínculo de descuentos con pagos
 alter table movimientos add column if not exists "pagoId" text;
 alter table "cajaFuerte" add column if not exists "pagoId" text;
+alter table movimientos add column if not exists "semanaPropina" text;
+alter table "cajaFuerte" add column if not exists "semanaPropina" text;
 
 -- 20/11: fecha en que se descontó el adelanto
 alter table adelantos add column if not exists "descontadoFecha" date;
